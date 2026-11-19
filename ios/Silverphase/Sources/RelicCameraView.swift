@@ -356,8 +356,8 @@ private struct RelicViewfinderMarks: View {
                     Text(s)
                         .font(.system(size: size, weight: .bold, design: .monospaced))
                         .foregroundColor(lit
-                            ? Color(red: 0.59, green: 1, blue: 0.67).opacity(alpha * (on ? 0.92 : 0.28))
-                            : Color.white.opacity(alpha * 0.19))
+                            ? Color(red: 0.59, green: 1, blue: 0.67).opacity(Double(alpha) * (on ? 0.92 : 0.28))
+                            : Color.white.opacity(Double(alpha) * 0.19))
                         .frame(width: 42, alignment: .trailing)
                         .position(x: scaleX - 21,
                                   y: content.minY + content.height * (0.30 + 0.12 * CGFloat(idx)))
@@ -570,7 +570,7 @@ private struct RelicDarkroomPlate: View {
                 RoundedRectangle(cornerRadius: 11.5).stroke(Color(hex: 0x0E1013), lineWidth: 0.5)
                     .padding(2.5)
                 Text("DARKROOM")
-                    .font(.system(size: 8, weight: .medium, design: .monospace))
+                    .font(.system(size: 8, weight: .medium, design: .monospaced))
                     .kerning(0.9)
                     .foregroundColor(Color(hex: 0xC9C5BC))
             }
