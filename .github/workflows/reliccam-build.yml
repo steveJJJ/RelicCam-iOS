@@ -7,10 +7,12 @@ on:
 
 jobs:
   build:
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+      - name: Install Metal Toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
       - name: Generate Xcode project
         run: python3 ios/Silverphase/Tools/gen-project.py
       - name: Archive (device, unsigned)
