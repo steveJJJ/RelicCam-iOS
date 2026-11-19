@@ -39,7 +39,7 @@ script_phase = obj('engine', 'isa = PBXShellScriptBuildPhase; buildActionMask = 
 configs = []
 for name in ['Debug', 'Release']:
     settings = {
-        'PRODUCT_NAME': 'Silverphase', 'PRODUCT_BUNDLE_IDENTIFIER': 'com.silverphase.editor',
+        'PRODUCT_NAME': 'Silverphase', 'PRODUCT_BUNDLE_IDENTIFIER': 'com.reliccam.ios',
         'ASSETCATALOG_COMPILER_APPICON_NAME': 'Silverphase',
         'SDKROOT': 'iphoneos', 'SUPPORTED_PLATFORMS': 'iphoneos iphonesimulator', 'IPHONEOS_DEPLOYMENT_TARGET': '18.0',
         'TARGETED_DEVICE_FAMILY': '1,2', 'ARCHS': 'arm64', 'SWIFT_VERSION': '6.0',
@@ -93,7 +93,7 @@ for name, suffix, extra_sources, extensionkit in [
     extension_product = obj(name + ':product', f'isa = PBXFileReference; explicitFileType = {file_type}; path = {name}.appex; sourceTree = BUILT_PRODUCTS_DIR;')
     refs.append(extension_product)
     settings = {
-        'PRODUCT_NAME': name, 'PRODUCT_BUNDLE_IDENTIFIER': 'com.silverphase.editor.' + suffix,
+        'PRODUCT_NAME': name, 'PRODUCT_BUNDLE_IDENTIFIER': 'com.reliccam.ios.' + suffix,
         'SDKROOT': 'iphoneos', 'SUPPORTED_PLATFORMS': 'iphoneos iphonesimulator',
         'IPHONEOS_DEPLOYMENT_TARGET': '18.0', 'TARGETED_DEVICE_FAMILY': '1,2', 'ARCHS': 'arm64',
         'SWIFT_VERSION': '6.0', 'CODE_SIGN_STYLE': 'Automatic', 'SKIP_INSTALL': 'YES',
@@ -126,7 +126,7 @@ test_sources = obj('uitest-sources', f'isa = PBXSourcesBuildPhase; buildActionMa
 test_config_ids = []
 for name in ['Debug', 'Release']:
     settings = {
-        'PRODUCT_NAME': 'SilverphaseUITests', 'PRODUCT_BUNDLE_IDENTIFIER': 'com.silverphase.editor.uitests',
+        'PRODUCT_NAME': 'SilverphaseUITests', 'PRODUCT_BUNDLE_IDENTIFIER': 'com.reliccam.ios.uitests',
         'SDKROOT': 'iphoneos', 'SUPPORTED_PLATFORMS': 'iphoneos iphonesimulator',
         'IPHONEOS_DEPLOYMENT_TARGET': '18.0', 'TARGETED_DEVICE_FAMILY': '1,2', 'ARCHS': 'arm64',
         'SWIFT_VERSION': '6.0', 'GENERATE_INFOPLIST_FILE': 'YES', 'TEST_TARGET_NAME': 'Silverphase',
@@ -139,7 +139,7 @@ dependency = obj('uitest-dependency', f'isa = PBXTargetDependency; target = {tar
 test_target = obj('uitest-target', f'isa = PBXNativeTarget; name = SilverphaseUITests; productName = SilverphaseUITests; productReference = {test_product}; productType = "com.apple.product-type.bundle.ui-testing"; buildConfigurationList = {test_configs}; buildPhases = ({test_sources}); buildRules = (); dependencies = ({dependency});')
 project_config_ids = [obj('project-config:' + name, 'isa = XCBuildConfiguration; name = ' + name + '; buildSettings = {};') for name in ['Debug', 'Release']]
 project_configs = obj('project-configs', f'isa = XCConfigurationList; buildConfigurations = ({",".join(project_config_ids)}); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;')
-project = obj('project', f'isa = PBXProject; buildConfigurationList = {project_configs}; compatibilityVersion = "Xcode 14.0"; developmentRegion = zh_CN; knownRegions = (zh_CN,en,Base); mainGroup = {group}; projectDirPath = ""; projectRoot = ""; targets = ({target},{test_target},{",".join(extension_targets)}); attributes = {{LastUpgradeCheck = 2710; TargetAttributes = {{{target} = {{SystemCapabilities = {{com.apple.IncreasedMemoryLimit = {{enabled = 1;}};}};}};}};}};')
+project = obj('project', f'isa = PBXProject; buildConfigurationList = {project_configs}; compatibilityVersion = "Xcode 14.0"; developmentRegion = zh_CN; knownRegions = (zh_CN,en,Base); mainGroup = {group}; projectDirPath = ""; projectRoot = ""; targets = ({target},{test_target},{",".join(extension_targets)}); attributes = {{LastUpgradeCheck = 2710; TargetAttributes = {{}};}};')
 text = '// !$*UTF8*$!\n{ archiveVersion = 1; classes = {}; objectVersion = 56; objects = {\n' + '\n'.join(objects) + f'\n}}; rootObject = {project}; }}\n'
 dest = root / 'Silverphase.xcodeproj/project.pbxproj'
 if '--check' in sys.argv:
