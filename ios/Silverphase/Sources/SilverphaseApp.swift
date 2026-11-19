@@ -21,10 +21,15 @@ import OSLog
     var body: some Scene { WindowGroup { rootView } }
 
     @ViewBuilder private var editorRoot: some View {
-        if document.editorVisible && isDiagnosticEditorLaunch {
-            MobileEditor(document: document)
+        if isDiagnosticEditorLaunch {
+            if document.editorVisible {
+                MobileEditor(document: document)
+            } else {
+                MobileLibrary(document: document)
+            }
         } else {
-            MobileLibrary(document: document)
+            // Relic Cam：打开即 T3 相机（装卷 → 拍摄未冲洗底片 → 暗房冲洗）。
+            RelicCameraRoot()
         }
     }
     private var isDiagnosticEditorLaunch: Bool {
