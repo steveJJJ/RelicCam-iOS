@@ -5,6 +5,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: xcode-27
@@ -34,3 +37,13 @@ jobs:
           name: RelicCam-IPA
           path: RelicCam.ipa
           if-no-files-found: error
+
+      - name: Publish IPA to build-ipa branch
+        run: |
+          git config user.name "RelicCam CI"
+          git config user.email "ci@users.noreply.github.com"
+          git checkout -B build-ipa
+          cp RelicCam.ipa RelicCam-unsigned.ipa
+          git add -f RelicCam-unsigned.ipa
+          git commit -m "build: unsigned Relic Cam IPA" || echo "no changes to commit"
+          git push -f origin build-ipa
