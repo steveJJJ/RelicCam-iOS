@@ -60,7 +60,7 @@ struct RelicCameraRoot: View {
             }
         }
         .sheet(isPresented: $showingDarkroom) {
-            RelicDarkroomPlaceholder(roll: activeRoll)
+            RelicDarkroomView()
         }
         .task { await bootstrap() }
     }
@@ -129,49 +129,5 @@ enum RelicPaths {
         let dir = support.appendingPathComponent("RelicCam/Undeveloped", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
-    }
-}
-
-// MARK: - 暗房占位（阶段 C 接真正的冲洗页）
-private struct RelicDarkroomPlaceholder: View {
-    let roll: RollRecord?
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                Color(red: 0.12, green: 0.06, blue: 0.07).ignoresSafeArea()
-                VStack(spacing: 16) {
-                    Text("暗房 DARKROOM")
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundColor(.red)
-                    if let roll {
-                        Text("未冲洗胶卷")
-                            .font(.system(size: 13)).foregroundColor(.white.opacity(0.6))
-                        Text(roll.filmStockId)
-                            .font(.system(size: 17, weight: .semibold, design: .monospaced))
-                            .foregroundColor(.white)
-                        Text("\(roll.frames.count) / \(RollContract.maxShots) 张")
-                            .font(.system(size: 14, design: .monospaced))
-                            .foregroundColor(.yellow)
-                    } else {
-                        Text("还没有胶卷")
-                            .foregroundColor(.white.opacity(0.6))
-                    }
-                    Text("冲洗功能将在下一阶段接入。\n拍完的底片已经存好，看不到成片——这正是胶片的乐趣。")
-                        .font(.system(size: 13)).foregroundColor(.white.opacity(0.5))
-                        .multilineTextAlignment(.center)
-                        .padding(.top, 20)
-                }
-                .padding()
-            }
-            .navigationTitle("暗房")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") { dismiss() }.foregroundColor(.yellow)
-                }
-            }
-        }
     }
 }
