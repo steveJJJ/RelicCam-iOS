@@ -222,18 +222,14 @@ private struct RelicDevelopProgressView: View {
             UIApplication.shared.isIdleTimerDisabled = true
             let ok = await RelicDeveloper.develop(roll: roll, store: store,
                                                   onProgress: { d, t, idx, cg, eta in
-                Task { @MainActor in
-                    self.done = d; self.total = t; self.currentIndex = idx
-                    self.etaText = eta
-                    self.phaseText = d == 0 ? "首次显影，正在配药…" : "显影中 · 第 \(idx + 1) 张"
-                    if let cg { self.preview = cg }
-                }
+                self.done = d; self.total = t; self.currentIndex = idx
+                self.etaText = eta
+                self.phaseText = d == 0 ? "首次显影，正在配药…" : "显影中 · 第 \(idx + 1) 张"
+                if let cg { self.preview = cg }
             })
-            await MainActor.run {
-                UIApplication.shared.isIdleTimerDisabled = false
-                self.errorCount = ok ? 0 : 1
-                finished(ok)
-            }
+            UIApplication.shared.isIdleTimerDisabled = false
+            self.errorCount = ok ? 0 : 1
+            finished(ok)
         }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
     }
@@ -241,10 +237,11 @@ private struct RelicDevelopProgressView: View {
 
 // MARK: - 冲洗引擎封装
 
+@MainActor
 enum RelicDeveloper {
-    /// 整卷冲洗。返回是否全部帧成功。进度回调在主线程由调用方包装。
+    /// 整卷冲洗。返回是否全部帧成功。进度回调在主线程直接调用。
     static func develop(roll: RollRecord, store: RelicRollStore,
-                        onProgress: @escaping (Int, Int, Int, CGImage?, String) -> Void) async -> Bool {
+                        onProgress: (Int, Int, Int, CGImage?, String) -> Void) async -> Bool {
         let frames = roll.frames.sorted { $0.index < $1.index }
         let total = frames.count
         guard total > 0 else { return true }
