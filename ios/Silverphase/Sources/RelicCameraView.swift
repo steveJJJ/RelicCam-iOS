@@ -82,6 +82,15 @@ struct RelicCameraView: View {
             let gate = RelicGate.gateRect(w: w, h: h)
             let shotsTaken = max(0, maxShots - shotsRemaining)
 
+            // CONTAX T3 铭牌锚点：安卓设计意图是「铭牌完全移出预览窗」。
+            // 以取景亮框下沿 gate.maxY 与底栏顶 barTop 之间的机身带为基准，
+            // 取中点放 logo —— 无论屏幕多高多矮，logo 永远不会压进亮框。
+            let logoH = ui.logoW * 162.0 / 888.0
+            let barTop = h - ui.bottomPad - ui.shutter
+            let logoCenterY = min(max((gate.maxY + barTop) / 2,
+                                      gate.maxY + logoH / 2 + 6 * ui.s),
+                                  barTop - logoH / 2 - 6 * ui.s)
+
             ZStack {
                 Color.black.ignoresSafeArea()
 
@@ -154,14 +163,11 @@ struct RelicCameraView: View {
                     }
                     .allowsHitTesting(true)
 
-                    // CONTAX T3 铭牌：取景框下沿与底栏之间（安卓 marginBottom 130dp + 行内居中）
-                    VStack {
-                        Spacer()
-                        RelicT3Logo(width: ui.logoW)
-                            .opacity(0.92)
-                            .padding(.bottom, ui.logoBottom)
-                    }
-                    .allowsHitTesting(false)
+                    // CONTAX T3 铭牌：绝对定位到取景亮框下沿与底栏之间的机身带（安卓：铭牌完全移出预览窗）
+                    RelicT3Logo(width: ui.logoW)
+                        .opacity(0.92)
+                        .position(x: w / 2, y: logoCenterY)
+                        .allowsHitTesting(false)
 
                     VStack {
                         Spacer()
@@ -192,10 +198,11 @@ struct RelicCameraView: View {
                             .frame(width: ui.lcdLandscape.width, height: ui.lcdLandscape.height)
                             RelicFunctionKeys(axis: .vertical, ui: ui, onPress: pressKey)
                                 .padding(.top, 18 * ui.s)
+                            Spacer(minLength: 0)
+                            // 安卓横屏：铭牌在左栏最下角，绝不落入取景窗
                             RelicT3Logo(width: ui.logoW)
                                 .opacity(0.92)
-                                .padding(.top, 16 * ui.s)
-                            Spacer(minLength: 0)
+                                .padding(.bottom, ui.bottomPad)
                         }
                         .padding(.leading, 18 * ui.s)
                         .allowsHitTesting(true)
