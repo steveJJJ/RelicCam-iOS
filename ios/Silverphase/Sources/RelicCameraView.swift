@@ -16,6 +16,33 @@ import UIKit
 //   ⑤ 动画：指示灯 8s 淡出、LED/快门闪烁、LCD EL 背光淡出、过卷动画。
 //   ⑥ LCD：反射式 TN + 右侧七段计数 + 闪电 + AF 眼 + ISO/EV/模式/电池。
 
+// MARK: - 机身控件尺寸度量（1:1 照搬安卓 dp，窄屏等比缩小）
+//
+// 安卓设计基准：LCD 172×64 / 148×56dp、功能键 48dp(间距 24/14)、
+// 快门 72dp、胶卷/暗房 56dp(间距 56)、logo 22dp 高(≈120.6pt 宽)、
+// 顶栏边距 16dp、底栏离底 48dp、logo 中心离底 158dp。
+// iOS 以 400pt 为参考宽度：常规机型 1:1 保留安卓尺寸；
+// iPhone SE(320)/13 mini(375) 等比缩小，避免顶栏 396pt 溢出被切键。
+private struct RelicUI {
+    let s: CGFloat
+    /// 以屏幕短边为基准：竖屏=宽度、横屏=高度，两个方向都不溢出。
+    init(basis: CGFloat) { s = max(0.78, min(1.0, basis / 400.0)) }
+
+    var lcdPortrait: CGSize { CGSize(width: 172 * s, height: 64 * s) }
+    var lcdLandscape: CGSize { CGSize(width: 148 * s, height: 56 * s) }
+    var topPad: CGFloat { 16 * s }
+    var bottomPad: CGFloat { 48 * s }
+    var key: CGFloat { 48 * s }
+    var keyGapH: CGFloat { 24 * s }
+    var keyGapV: CGFloat { 14 * s }
+    var shutter: CGFloat { 72 * s }
+    var wing: CGFloat { 56 * s }
+    var wingGap: CGFloat { 56 * s }
+    var wingLift: CGFloat { 8 * s }
+    var logoW: CGFloat { 120.6 * s }
+    var logoBottom: CGFloat { 147 * s }   // 安卓 logo 中心离底 158dp − 半高 11dp
+}
+
 struct RelicCameraView: View {
     @Environment(\.scenePhase) private var scenePhase
 
@@ -50,6 +77,7 @@ struct RelicCameraView: View {
             let w = geo.size.width
             let h = geo.size.height
             let portrait = w <= h
+            let ui = RelicUI(basis: min(w, h))
             let content = RelicGate.contentRect(w: w, h: h)
             let gate = RelicGate.gateRect(w: w, h: h)
             let shotsTaken = max(0, maxShots - shotsRemaining)
@@ -117,27 +145,28 @@ struct RelicCameraView: View {
                                 backlightUntil: backlightUntil,
                                 message: notice, messageUntil: noticeUntil
                             )
-                            .frame(width: 172, height: 64)
+                            .frame(width: ui.lcdPortrait.width, height: ui.lcdPortrait.height)
                             Spacer(minLength: 0)
-                            RelicFunctionKeys(axis: .horizontal, onPress: pressKey)
+                            RelicFunctionKeys(axis: .horizontal, ui: ui, onPress: pressKey)
                         }
-                        .padding(.horizontal, 14).padding(.top, 16)
+                        .padding(.horizontal, ui.topPad).padding(.top, ui.topPad)
                         Spacer()
                     }
                     .allowsHitTesting(true)
 
-                    // CONTAX T3 铭牌：取景框下沿与底栏之间（安卓 marginBottom 150dp）
+                    // CONTAX T3 铭牌：取景框下沿与底栏之间（安卓 marginBottom 130dp + 行内居中）
                     VStack {
                         Spacer()
-                        RelicT3Logo(width: 128)
+                        RelicT3Logo(width: ui.logoW)
                             .opacity(0.92)
-                            .padding(.bottom, 134)
+                            .padding(.bottom, ui.logoBottom)
                     }
                     .allowsHitTesting(false)
 
                     VStack {
                         Spacer()
                         RelicBottomBar(
+                            ui: ui,
                             filmBrand: loadedStock?.brand ?? "FILM",
                             filmName: loadedStock?.name ?? "",
                             capturing: capturing,
@@ -160,34 +189,34 @@ struct RelicCameraView: View {
                                 backlightUntil: backlightUntil,
                                 message: notice, messageUntil: noticeUntil
                             )
-                            .frame(width: 148, height: 56)
-                            RelicFunctionKeys(axis: .vertical, onPress: pressKey)
-                                .padding(.top, 14)
-                            RelicT3Logo(width: 118)
+                            .frame(width: ui.lcdLandscape.width, height: ui.lcdLandscape.height)
+                            RelicFunctionKeys(axis: .vertical, ui: ui, onPress: pressKey)
+                                .padding(.top, 18 * ui.s)
+                            RelicT3Logo(width: ui.logoW)
                                 .opacity(0.92)
-                                .padding(.top, 14)
+                                .padding(.top, 16 * ui.s)
                             Spacer(minLength: 0)
                         }
-                        .padding(.leading, 16)
+                        .padding(.leading, 18 * ui.s)
                         .allowsHitTesting(true)
                         Spacer(minLength: 0)
                         VStack(alignment: .center, spacing: 0) {
                             Spacer(minLength: 0)
-                            RelicDarkroomPlate {
+                            RelicDarkroomPlate(ui: ui) {
                                 lastActivityAt = Date(); openDarkroom()
                             }
-                            RelicShutterButton(capturing: capturing,
+                            RelicShutterButton(ui: ui, capturing: capturing,
                                                enabled: loadedStock != nil && shotsRemaining > 0) {
                                 Task { await takePhoto() }
                             }
-                            .padding(.vertical, 56)
-                            RelicFilmBox(brand: loadedStock?.brand ?? "FILM",
+                            .padding(.vertical, 56 * ui.s)
+                            RelicFilmBox(ui: ui, brand: loadedStock?.brand ?? "FILM",
                                          name: loadedStock?.name ?? "")
-                                .frame(width: 56, height: 56)
+                                .frame(width: ui.wing, height: ui.wing)
                                 .onTapGesture { lastActivityAt = Date(); openFilmPicker() }
                             Spacer(minLength: 0)
                         }
-                        .padding(.trailing, 40)
+                        .padding(.trailing, 50 * ui.s)
                         .allowsHitTesting(true)
                     }
                 }
@@ -442,36 +471,38 @@ private enum RelicKeyAxis { case horizontal, vertical }
 
 private struct RelicFunctionKeys: View {
     let axis: RelicKeyAxis
+    let ui: RelicUI
     let onPress: () -> Void
 
     var body: some View {
         Group {
             if axis == .horizontal {
-                HStack(spacing: 24) { keys }
+                HStack(spacing: ui.keyGapH) { keys }
             } else {
-                VStack(spacing: 14) { keys }
+                VStack(spacing: ui.keyGapV + 4 * ui.s) { keys }
             }
         }
     }
 
     private var keys: some View {
         ForEach(0..<3, id: \.self) { i in
-            Button(action: onPress) { RelicKey(kind: i) }
+            Button(action: onPress) { RelicKey(kind: i, ui: ui) }
                 .buttonStyle(.plain)
-                .frame(width: 48, height: 48)
+                .frame(width: ui.key, height: ui.key)
         }
     }
 }
 
 private struct RelicKey: View {
     let kind: Int
+    let ui: RelicUI
     var body: some View {
         ZStack {
             Circle().fill(LinearGradient(colors: [Color(hex: 0x74787F), Color(hex: 0x2C3036),
                                                   Color(hex: 0x565A61)],
                                          startPoint: .top, endPoint: .bottom))
-            Circle().fill(Color(hex: 0x24262A)).padding(3)
-            Circle().stroke(Color(hex: 0x0E1013), lineWidth: 0.5).padding(3)
+            Circle().fill(Color(hex: 0x24262A)).padding(3 * ui.s)
+            Circle().stroke(Color(hex: 0x0E1013), lineWidth: 0.5).padding(3 * ui.s)
             switch kind {
             case 0:   // 闪电
                 Path { p in
@@ -480,18 +511,18 @@ private struct RelicKey: View {
                     p.addLine(to: CGPoint(x: 18.2, y: 9.4)); p.addLine(to: CGPoint(x: 13.3, y: 9.4))
                     p.addLine(to: CGPoint(x: 13.6, y: 2)); p.closeSubpath()
                 }
-                .scaleEffect(0.62).frame(width: 24, height: 24)
+                .scaleEffect(0.62 * ui.s).frame(width: 24 * ui.s, height: 24 * ui.s)
                 .foregroundColor(Color(hex: 0xDCDCE0))
             case 1:   // EV
-                Text("EV0").font(.system(size: 11, weight: .bold, design: .monospaced))
+                Text("EV0").font(.system(size: 11 * ui.s, weight: .bold, design: .monospaced))
                     .foregroundColor(Color(hex: 0xDCDCE0))
             default:  // 设置（三条滑杆）
-                VStack(spacing: 4) {
+                VStack(spacing: 4 * ui.s) {
                     ForEach(0..<3, id: \.self) { _ in
                         ZStack {
-                            Capsule().fill(Color(hex: 0xDCDCE0)).frame(width: 18, height: 1.5)
-                            Circle().fill(Color(hex: 0xDCDCE0)).frame(width: 4, height: 4)
-                                .offset(x: 4)
+                            Capsule().fill(Color(hex: 0xDCDCE0)).frame(width: 18 * ui.s, height: 1.5)
+                            Circle().fill(Color(hex: 0xDCDCE0)).frame(width: 4 * ui.s, height: 4 * ui.s)
+                                .offset(x: 4 * ui.s)
                         }
                     }
                 }
@@ -502,6 +533,7 @@ private struct RelicKey: View {
 
 // MARK: - 底栏：胶卷盒 / 快门 / 暗房（竖屏，安卓 bottomBar）
 private struct RelicBottomBar: View {
+    let ui: RelicUI
     let filmBrand: String
     let filmName: String
     let capturing: Bool
@@ -512,29 +544,33 @@ private struct RelicBottomBar: View {
     let onDarkroom: () -> Void
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 6 * ui.s) {
             if let notice {
                 Text(notice)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: 11 * ui.s, design: .monospaced))
                     .foregroundColor(Color(red: 0.82, green: 0.86, blue: 0.62))
                     .lineLimit(1)
             }
-            HStack(alignment: .center, spacing: 0) {
-                RelicFilmBox(brand: filmBrand, name: filmName)
-                    .frame(width: 56, height: 56)
+            // 安卓 gravity=bottom：胶卷/暗房上抬 8dp，快门落地，三者底缘对齐口径一致
+            HStack(alignment: .bottom, spacing: 0) {
+                RelicFilmBox(ui: ui, brand: filmBrand, name: filmName)
+                    .frame(width: ui.wing, height: ui.wing)
+                    .padding(.bottom, ui.wingLift)
                     .onTapGesture(perform: onFilm)
-                Spacer().frame(width: 56)
-                RelicShutterButton(capturing: capturing, enabled: enabled, action: onShutter)
-                Spacer().frame(width: 56)
-                RelicDarkroomPlate(action: onDarkroom)
+                Spacer().frame(width: ui.wingGap)
+                RelicShutterButton(ui: ui, capturing: capturing, enabled: enabled, action: onShutter)
+                Spacer().frame(width: ui.wingGap)
+                RelicDarkroomPlate(ui: ui, action: onDarkroom)
+                    .padding(.bottom, ui.wingLift)
             }
         }
-        .padding(.bottom, 48)
+        .padding(.bottom, ui.bottomPad)
     }
 }
 
 // MARK: - 快门钮（哑光黑盘 + 金属倒角外圈，仿 bg_shutter）
 private struct RelicShutterButton: View {
+    let ui: RelicUI
     let capturing: Bool
     let enabled: Bool
     let action: () -> Void
@@ -544,11 +580,11 @@ private struct RelicShutterButton: View {
                 Circle().fill(LinearGradient(colors: [Color(hex: 0x74787F), Color(hex: 0x2C3036),
                                                       Color(hex: 0x565A61)],
                                              startPoint: .top, endPoint: .bottom))
-                Circle().fill(Color(hex: 0x24262A)).padding(4.5)
-                Circle().stroke(Color(hex: 0x0E1013), lineWidth: 0.6).padding(4.5)
-                if capturing { Circle().fill(Color.white.opacity(0.10)).padding(10) }
+                Circle().fill(Color(hex: 0x24262A)).padding(4.5 * ui.s)
+                Circle().stroke(Color(hex: 0x0E1013), lineWidth: 0.6).padding(4.5 * ui.s)
+                if capturing { Circle().fill(Color.white.opacity(0.10)).padding(10 * ui.s) }
             }
-            .frame(width: 72, height: 72)
+            .frame(width: ui.shutter, height: ui.shutter)
         }
         .buttonStyle(.plain)
         .disabled(capturing || !enabled)
@@ -558,23 +594,24 @@ private struct RelicShutterButton: View {
 
 // MARK: - 暗房金属蚀刻字牌（仿 bg_darkroom，安卓 btnGallery）
 private struct RelicDarkroomPlate: View {
+    let ui: RelicUI
     let action: () -> Void
     var body: some View {
         Button(action: action) {
             ZStack {
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: 14 * ui.s)
                     .fill(LinearGradient(colors: [Color(hex: 0x666A72), Color(hex: 0x262A30),
                                                   Color(hex: 0x4A4E56)],
                                          startPoint: .top, endPoint: .bottom))
-                RoundedRectangle(cornerRadius: 11.5).fill(Color(hex: 0x212327)).padding(2.5)
-                RoundedRectangle(cornerRadius: 11.5).stroke(Color(hex: 0x0E1013), lineWidth: 0.5)
-                    .padding(2.5)
+                RoundedRectangle(cornerRadius: 11.5 * ui.s).fill(Color(hex: 0x212327)).padding(2.5 * ui.s)
+                RoundedRectangle(cornerRadius: 11.5 * ui.s).stroke(Color(hex: 0x0E1013), lineWidth: 0.5)
+                    .padding(2.5 * ui.s)
                 Text("DARKROOM")
-                    .font(.system(size: 8, weight: .medium, design: .monospaced))
-                    .kerning(0.9)
+                    .font(.system(size: 9 * ui.s, weight: .medium, design: .monospaced))
+                    .kerning(0.9 * ui.s)
                     .foregroundColor(Color(hex: 0xC9C5BC))
             }
-            .frame(width: 56, height: 56)
+            .frame(width: ui.wing, height: ui.wing)
         }
         .buttonStyle(.plain)
     }
@@ -582,6 +619,7 @@ private struct RelicDarkroomPlate: View {
 
 // MARK: - 胶卷盒图标（彩色盒身）
 private struct RelicFilmBox: View {
+    let ui: RelicUI
     let brand: String
     let name: String
     private var tint: Color {
@@ -599,11 +637,11 @@ private struct RelicFilmBox: View {
             RoundedRectangle(cornerRadius: 3).fill(tint).padding(2)
             VStack(spacing: 0) {
                 Text(brand.uppercased())
-                    .font(.system(size: 6.5, weight: .bold)).foregroundColor(.white).lineLimit(1)
+                    .font(.system(size: 6.5 * ui.s, weight: .bold)).foregroundColor(.white).lineLimit(1)
                 Text(name.uppercased())
-                    .font(.system(size: 9, weight: .heavy)).foregroundColor(.white).lineLimit(1)
+                    .font(.system(size: 9 * ui.s, weight: .heavy)).foregroundColor(.white).lineLimit(1)
             }
-            .padding(2)
+            .padding(2 * ui.s)
         }
         .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(0.5), lineWidth: 1))
         .shadow(radius: 2)
