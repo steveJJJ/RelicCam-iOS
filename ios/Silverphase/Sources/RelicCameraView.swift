@@ -55,6 +55,8 @@ struct RelicCameraView: View {
     @State private var camera = MobileStillCamera()
     @State private var configuration: MobileCameraConfiguration?
     @State private var previewing = false
+    @State private var starting = false          // 并发启动守卫：.task 与 .onChange 可能同时触发
+    @State private var interruptionEnded = false // 会话被系统中断（来电/其他 App 抢相机）后需重启
     @State private var portraitPreview = true
     @State private var capturing = false
     @State private var shutterFlash = false
@@ -238,10 +240,25 @@ struct RelicCameraView: View {
         .task { await startCamera() }
         .onAppear { backlightUntil = Date().addingTimeInterval(1.2) }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await startCamera() } }
-            else if phase == .background { camera.stop() }
+            if phase == .active {
+                Task { await startCamera() }
+            } else if phase == .background {
+                stopCamera()
+            }
         }
-        .onDisappear { camera.stop() }
+        .onDisappear { stopCamera() }
+        // 系统抢占相机（来电/别的 App 打开相机）后 AVFoundation 会发中断通知；
+        // 结束时必须重新 start，否则预览永久黑屏 —— 对齐引擎原生 MobileCamera 的恢复逻辑。
+        .onReceive(NotificationCenter.default.publisher(
+            for: AVCaptureSession.wasInterruptedNotification, object: camera.session)) { _ in
+            configuration = nil
+            previewing = false
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: AVCaptureSession.interruptionEndedNotification, object: camera.session)) { _ in
+            interruptionEnded.toggle()
+            Task { await startCamera() }
+        }
         .alert("相机权限未开启", isPresented: $showingDenied) {
             Button("去设置") {
                 if let url = URL(string: UIApplication.openSettingsURLString) {
@@ -298,6 +315,12 @@ struct RelicCameraView: View {
     }
 
     private func startCamera() async {
+        // 并发守卫：.task 与 scenePhase=.active / 中断恢复可能同时进来，
+        // 重复 start 会让 AVCaptureSession 状态错乱、预览黑屏。
+        guard !starting else { return }
+        starting = true
+        defer { starting = false }
+
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .notDetermined:
             guard await AVCaptureDevice.requestAccess(for: .video) else {
@@ -307,15 +330,26 @@ struct RelicCameraView: View {
             showingDenied = true; return
         default: break
         }
-        guard configuration == nil else { return }
+        // 已有配置且预览在跑 → 不重复启动。缺任一（后台被停 / 中断被清）→ 重建。
+        if configuration != nil && previewing { return }
         do {
             let pref = RelicCaptureOptions()
-            configuration = try await camera.start(lens: lens, portrait: false,
-                                                   prefersRAW: pref.rawNegativeEnabled,
-                                                   prefers12MP: true)
+            let cfg = try await camera.start(lens: lens, portrait: false,
+                                             prefersRAW: pref.rawNegativeEnabled,
+                                             prefers12MP: true)
+            configuration = cfg
+            previewing = false   // 让新 device 的预览层重新挂载并置 opacity
         } catch {
+            configuration = nil
             setNotice("相机启动失败：\(error.localizedDescription)")
         }
+    }
+
+    private func stopCamera() {
+        camera.stop()
+        // 关键：清掉配置与预览标志，否则回前台时 startCamera 会误判「已配置」而跳过重启。
+        configuration = nil
+        previewing = false
     }
 }
 
