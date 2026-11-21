@@ -42,12 +42,19 @@ public actor RelicRollStore {
         return rolls
     }
 
-    /// 当前正在拍摄的卷（status = shooting）。没有则 nil。
+    /// 当前正在拍摄的卷（status = shooting）。最新装入的优先 —— 换卷后必须指向新卷。
+    /// 用 last 而非 first：新卷 append 在数组末尾，旧卷（拍过、待冲洗）仍留在前面。
     public func activeRoll() -> RollRecord? {
-        loadRolls().first { $0.status == RollContract.statusShooting }
+        loadRolls().last { $0.status == RollContract.statusShooting }
+    }
+
+    /// 按 id 取任意状态的卷（暗房冲洗完成后刷新用：此时卷已不是 shooting）。
+    public func roll(withId id: String) -> RollRecord? {
+        loadRolls().first { $0.rollId == id }
     }
 
     /// 装卷：创建新卷并设为当前。36 张上限在 appendFrame 处强制。
+    /// 顺带清掉「未拍任何一张就换掉」的空卷，避免反复换卷累积废卷。
     public func loadFilm(filmStockId: String, printStockId: String) -> RollRecord {
         let now = Int64(Date().timeIntervalSince1970 * 1000)
         let roll = RollRecord(rollId: "roll-\(now)-\(UUID().uuidString.prefix(8))",
@@ -55,6 +62,7 @@ public actor RelicRollStore {
                               printStockId: printStockId,
                               createdAtMs: now)
         var rolls = loadRolls()
+        rolls.removeAll { $0.status == RollContract.statusShooting && $0.frames.isEmpty }
         rolls.append(roll)
         persist(rolls)
         return roll
