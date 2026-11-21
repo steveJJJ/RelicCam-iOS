@@ -378,7 +378,12 @@ enum RelicDeveloper {
         let developedDir = RelicPaths.developedDirectory()
 
         for frame in frames {
-            if completed.contains(frame.index) { continue }
+            let stem = "relic-\(roll.rollId)-\(frame.index)"
+            let finalURL = developedDir.appendingPathComponent("\(stem).jpg")
+            // checkpoint 说完成，还得文件真在才算 —— 覆盖安装后母片可能被清，
+            // 只信 checkpoint 会跳过重渲，成片页于是永远空白。
+            if completed.contains(frame.index) &&
+                FileManager.default.fileExists(atPath: finalURL.path) { continue }
             let start = Date()
             onProgress(completed.count, total, frame.index, nil, eta(emaMs, total - completed.count))
 
@@ -392,7 +397,6 @@ enum RelicDeveloper {
             }
 
             let recipe = recipe(for: roll)
-            let stem = "relic-\(roll.rollId)-\(frame.index)"
             var frameOK = false
 
             // 致命点：引擎默认导出配方上限 24MP，内存门槛约 2.3GB；
@@ -417,7 +421,6 @@ enum RelicDeveloper {
                         throw NSError(domain: "RelicCam", code: -1,
                                       userInfo: [NSLocalizedDescriptionKey: "引擎没有产出图片"])
                     }
-                    let finalURL = developedDir.appendingPathComponent("\(stem).jpg")
                     if FileManager.default.fileExists(atPath: finalURL.path) {
                         try? FileManager.default.removeItem(at: finalURL)
                     }
@@ -500,16 +503,40 @@ enum RelicDeveloper {
         return "预计还需约 \(max(1, sec)) 秒"
     }
 
-    /// 从成片文件读一张小缩略图，零引擎开销。进度页与成片页共用 —— 避免全尺寸
-    /// 解码（36MP≈144MB）在 13 mini 等机型上翻页被系统回收导致「照片消失」。
+    /// 从成片文件读一张展示图，零引擎开销。
+    ///
+    /// 关键修复：原实现用 kCGImageSourceCreateThumbnailFromImageAlways + transform，
+    /// 引擎导出的 JPEG 带 P3 色彩配置 + EXIF orientation 时，这条路径在 iOS 上
+    /// 会返回 nil —— 母片在磁盘上好好的、系统相册能显示，唯独暗房读不出来。
+    /// 改成先用 UIImage(contentsOfFile:)（UIKit 会正确处理方向/色彩），
+    /// 再退回 CGImageSource 原图解码，最后才用 ImageIO 缩略图。
     fileprivate static func thumbnail(of url: URL) -> CGImage? {
-        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-        let opts: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceThumbnailMaxPixelSize: 1600,
-            kCGImageSourceCreateThumbnailWithTransform: true
-        ]
-        return CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            RelicDarkroomLog.write("DECODE missing \(url.lastPathComponent)")
+            return nil
+        }
+        // 1. UIKit 直接解码（最稳，自动应用 EXIF 方向，P3 交给系统处理）
+        if let ui = UIImage(contentsOfFile: url.path), let cg = ui.cgImage {
+            return cg
+        }
+        // 2. ImageIO 原图解码（不强制变换，避免 transform 失败）
+        if let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+           let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) {
+            return cg
+        }
+        // 3. ImageIO 缩略图兜底
+        if let src = CGImageSourceCreateWithURL(url as CFURL, nil) {
+            let opts: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+                kCGImageSourceThumbnailMaxPixelSize: 1600
+            ]
+            if let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) {
+                return cg
+            }
+        }
+        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? -1
+        RelicDarkroomLog.write("DECODE fail \(url.lastPathComponent) size=\(size)")
+        return nil
     }
 }
 
@@ -610,12 +637,14 @@ private struct RelicDevelopedGalleryView: View {
         let url = RelicPaths.developedDirectory().appendingPathComponent(name)
         // 用缩略图解码而非全尺寸，避免大图在真机上因内存被回收而变空白。
         guard let cg = RelicDeveloper.thumbnail(of: url) else {
+            RelicDarkroomLog.write("GALLERY fail \(name)")
             await MainActor.run {
                 self.image = nil
                 self.notice = "未找到成片母片，请回暗房重新冲洗这一卷。"
             }
             return
         }
+        RelicDarkroomLog.write("GALLERY ok \(name) \(cg.width)x\(cg.height)")
         await MainActor.run { self.image = cg }
     }
 
