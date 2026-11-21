@@ -59,7 +59,9 @@ struct RelicCameraRoot: View {
                 Task { await loadFilm(stock) }
             }
         }
-        .sheet(isPresented: $showingDarkroom) {
+        .sheet(isPresented: $showingDarkroom, onDismiss: {
+            Task { await refreshAfterDarkroom() }
+        }) {
             RelicDarkroomView()
         }
         .task { await bootstrap() }
@@ -90,6 +92,20 @@ struct RelicCameraRoot: View {
             self.activeRoll = roll
             self.loadedStock = stock
         }
+    }
+
+    /// 暗房关闭后重建活动卷。冲洗会把原卷 status 改成 developing/developed，
+    /// 而 activeRoll() 只认 shooting —— 不自动装新卷的话，回到相机继续拍会
+    /// 写进那卷已被取走的底片，appendFrame 拒绝后误报「底片已满或写入失败」。
+    private func refreshAfterDarkroom() async {
+        if let active = await store.activeRoll() {
+            await MainActor.run { self.activeRoll = active }
+            return
+        }
+        // 原卷已送暗房：用同款胶卷自动装上新卷，相机可立即继续拍。
+        // loadFilm 会清掉「空且 shooting」的废卷，不会反复累积。
+        let stock = await MainActor.run { self.loadedStock }
+        if let stock { await loadFilm(stock) }
     }
 
     /// 快门：把原片写到未冲洗底片文件，记一帧，返回是否成功。
