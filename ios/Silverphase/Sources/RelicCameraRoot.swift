@@ -82,15 +82,8 @@ struct RelicCameraRoot: View {
     }
 
     private func loadFilm(_ stock: Stock) async {
-        // 若有正在拍摄但未满的卷，先不覆盖（阶段 C 会提供"中途换卷"流程）；
-        // B1 简化：存在活动卷时直接复用它，只更新显示。
-        if let existing = await store.activeRoll() {
-            await MainActor.run {
-                self.activeRoll = existing
-                self.loadedStock = StockCatalog.shared.stock(existing.filmStockId)
-            }
-            return
-        }
+        // 用户选了胶卷就真正装上新卷 —— 旧卷（若已拍）保留为待冲洗，不覆盖、不丢失。
+        // 之前的实现「有活动卷就复用」会让换卷永远不生效，是本次修复的核心。
         let printID = stock.targetPrint ?? StockCatalog.shared.papers.first?.id ?? ""
         let roll = await store.loadFilm(filmStockId: stock.id, printStockId: printID)
         await MainActor.run {
