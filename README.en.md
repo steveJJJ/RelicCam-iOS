@@ -1,104 +1,74 @@
 <p align="center">
-  <img src="screenshots/app-icon.png" width="112" height="112" alt="Silverphase app icon">
+  <img src="screenshots/app-icon.png" width="112" height="112" alt="Relic Cam app icon">
 </p>
 
-<h1 align="center">Silverphase</h1>
+<h1 align="center">Relic Cam</h1>
 
 <p align="center">
-  <strong>From film exposure to the finished print.</strong><br>
-  Native film and print simulation for macOS, iPhone, and iPad
+  <strong>Load a roll. Press the shutter. Develop the surprise.</strong><br>
+  The native iOS port of Relic Cam · CONTAX T3 interaction · a real film engine
 </p>
 
 <p align="center">
   <a href="README.md">简体中文</a> · English ·
-  <a href="#download">Download</a> · <a href="screenshots/current/README.md">Examples</a> ·
-  <a href="docs/README.md">Documentation</a> · <a href="#build-from-source">Build from source</a> ·
-  <a href="#also-by-the-author-layerlight">Layerlight</a>
+  <a href="#how-it-works">How it works</a> · <a href="#install">Install</a> ·
+  <a href="#build-from-source">Build from source</a> · <a href="#background">Background</a>
 </p>
 
-Silverphase simulates **camera input → film exposure → development → printing → scanning** on device. Film and paper shape the result together. Grain, halation, and film edges form within the process. Deliver a finished image or export a Cineon intermediate that preserves film contrast for grading.
+Relic Cam turns "taking a photo" back into a film ritual: **load a roll → shoot → develop in the darkroom → only then see the print**. The viewfinder never shows frames you've already taken, just like a real film camera — you trust the roll in your pocket and wait for the chemistry to reveal it. This iOS build carries over the soul of the Android Relic Cam, with an interface rebuilt around the **CONTAX T3** LCD logic.
 
-## Also by the author: Layerlight
+> Current build: `1.2.5` (8), for iPhone and iPad, iOS 18+. Installed by sideloading (ad-hoc signing).
 
-<table>
-  <tr>
-    <td width="112" align="center"><a href="https://apps.apple.com/app/id6756343255"><img src="screenshots/related-apps/layerlight-icon.png" width="96" height="96" alt="Layerlight app icon"></a></td>
-    <td>
-      <strong>Layerlight · HDR Photo Editor</strong><br>
-      A separate proprietary app by the same author, available on the App Store for iPhone and iPad.
-      <p>Shape HDR highlights and Gain Maps with light, contrast, and softness controls. Supports HEIC Photographic Styles workflows, plus crop, frames, watermarks, and batch export. Photographic Styles editing requires compatible devices and systems; some features require Pro.</p>
-      <a href="https://apps.apple.com/app/id6756343255"><strong>View and download on the App Store →</strong></a>
-    </td>
-  </tr>
-</table>
+## How it works
 
-Layerlight and its icon retain their separate rights and are outside Silverphase's open-source licences. See the [related-app artwork notice](screenshots/related-apps/README.md) for the icon's provenance.
+1. **Load a roll.** Pick a stock from the film bay — Portra, Gold, Tri-X, Ektachrome and more. Each roll holds 36 exposures.
+2. **Frame and shoot.** A T3-style viewfinder: 2:3 / 3:4 frames, green focus lamp, shutter speed and an LCD frame counter. Each shutter press writes a latent frame to undeveloped film — **the viewfinder shows no preview of the result**.
+3. **Send the roll to the darkroom.** Shoot the whole roll or develop early. The real engine develops each frame, with progress and estimated time on screen.
+4. **See the prints.** Only after development do the images appear in the darkroom — that's when you can browse, rate and save favorites to the Photos app.
 
-## Download
+The line "what you can't see is what's most beautiful" is Relic Cam's design from day one.
 
-| Platform | Version and download | Requirements |
-|---|---|---|
-| macOS | [1.3.0 (build 5)](https://github.com/akinal5765-byte/Silverphase/releases/tag/macos-v1.3.0) · Apple silicon DMG | macOS 15 or later |
-| iPhone and iPad | [TestFlight](https://testflight.apple.com/join/uwY3ZYJp) · [iOS 1.2.5 notes](https://github.com/akinal5765-byte/Silverphase/releases/tag/v1.2.5) | iOS or iPadOS 18 or later |
+## Install
 
-On macOS, check for updates in Settings → Software Update. The GitHub DMG is ad-hoc signed and has no Apple notarization. See the [release guide](docs/BINARY-RELEASES.md) for installation and SHA-256 verification. The platforms have independent versions. TestFlight shows the available mobile build.
+CI compiles an ad-hoc signed IPA on every push; sideload it with [Sideloadly](https://sideloadly.io/) and a free Apple ID.
 
-## What's new in macOS 1.3.0
+1. Download `RelicCam-unsigned.ipa` from the `build-ipa` branch (or the Actions artifact).
+2. Install Sideloadly, sign the IPA with your Apple ID and install it on your iPhone.
+3. Before first launch: **Settings → Privacy & Security → Developer Mode**, enable and restart; trust this computer.
+4. Open Relic Cam, load a roll and start shooting.
 
-- **Pre-film controls.** Adjust local brights and darks, exposure, contrast, lift, gain, midtone detail, color boost, and saturation. Existing photos retain their saved tone settings.
-- **Match Camera Preview Brightness.** Supported RAW files can use the camera preview to set their starting exposure. Batch copying can carry the switch while each photo keeps its own fine-tuning.
-- **Experimental stocks and print balance.** Adds 29 Fotufilm profiles adapted by Negs. Shared engine updates cover spectral adaptation, DIR, neutral print filtration, and grain softness.
-- **Output.** JPEG, PNG, and TIFF exports carry the photo’s XMP star rating. For heavy crops that need a large output, Film → Frame ⋯ → Simulation Size generates grain and halation at the target size.
+> Apps signed with a free Apple ID expire after 7 days and need re-sideloading. A paid developer account extends this.
 
-See the [1.3.0 release notes](modern_UI/Spektrafilm/releases/1.3.0.md) for the full changes and Kodak 5219 validation scope.
+## UI & interaction
 
-## Edit and deliver
-
-1. **Open a photo.** Open a file or folder on macOS. Import from Photos or Files, or use the in-app camera, on iPhone and iPad. RAW compatibility depends on the Apple system decoder.
-2. **Choose materials.** The public catalog contains 25 standard film profiles, 9 papers, and 29 experimental films. Print a negative or select a direct scan. Ilford Multigrade IV RC supports grades 00–5. [Full catalog](modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json) · [Experimental profile provenance and scope](license/DATA-SOURCES.md#experimental-fotufilm-profiles)
-3. **Adjust the process.** Control metering, white balance, development, grain, halation, physical frame size, and print filtration. Add film edges and date stamps. macOS also offers soft proofing and two-photo half-frame compositions. [macOS guide](modern_UI/Spektrafilm/README.md)
-4. **Export.** Deliver a JPEG, 8-bit PNG, or 16-bit TIFF with your chosen color profile. The Cineon DI package provides a 16-bit log TIFF plus ProPhoto RGB and Rec.709 viewing LUTs for grading. [Export and DI guide](modern_UI/Spektrafilm/README.md#图像与输出边界)
-
-Lightroom Classic can send a single JPEG or TIFF copy to the macOS editor. Save writes the full-resolution result back to the registered copy. Lightroom’s tone rendering is baked into the input. [Illustrated setup and workflow](docs/LIGHTROOM-CLASSIC.md)
-
-### iPhone and iPad
-
-The mobile editor provides a local library, ratings and flags, batch editing and export, and layouts for conventional iPhones, iPhone Duo, and iPad. Version 1.2.5 adds capture EV, RAW preference and resolution choices, and an interactive print walkthrough. See the [iOS guide](ios/README.md) and [control audit](ios/CONTROL-AUDIT.md) for capture workflows, viewfinder modes, and device limitations.
-
-### Examples
-
-The desktop image below is from the October 2026 examples. The [case gallery](screenshots/current/README.md) includes multiple stocks, 100% grain crops, and halation comparisons. The platform guides describe current control locations.
-
-![Earlier Portra 400 lotus example](screenshots/current/silverphase-lotus-2026-10-31.jpg)
+- **CONTAX T3 home screen**: silver-body feel, LCD frame window, green lamp and shutter-speed indicator, detailed to match the Android Relic Cam.
+- **Adaptive layouts**: scaled by the screen's short edge, from iPhone 13 mini to iPad.
+- **State machine**: `shooting → developing → developed → editable`. Undeveloped film is never shown as a print anywhere.
+- **Resume & diagnostics**: interrupted rolls resume from a checkpoint; development logs persist on disk for troubleshooting.
 
 ## Build from source
 
-Both hosts use SwiftUI and a shared C++20/Metal engine. Python is used by development scripts. Image processing runs on the device.
+The iOS app uses SwiftUI with a shared C++20 / Metal film engine. CI (the `xcode-27` runner) builds automatically on pushes to `main`.
 
 ```sh
-git clone https://github.com/akinal5765-byte/Silverphase.git
-cd Silverphase
-export DEVELOPER_DIR=/Applications/Xcode-27.1.app/Contents/Developer
+git clone https://github.com/steveJJJ/RelicCam-iOS.git
+cd RelicCam-iOS
 
-SILVERPHASE_LOCAL_MATERIALS=0 engine/build.sh bundle
-SILVERPHASE_LOCAL_MATERIALS=0 xcodebuild \
-  -project modern_UI/Spektrafilm/Spektrafilm.xcodeproj \
-  -scheme Spektrafilm -configuration Debug -derivedDataPath build/DerivedData build
-open build/DerivedData/Build/Products/Debug/Silverphase.app
+# The Xcode project is generated; icon and Info.plist come from one config
+python3 ios/Silverphase/Tools/gen-project.py
+
+# Device builds need Xcode 27 and the Metal Toolchain; see the iOS build notes
+xcodebuild -downloadComponent MetalToolchain
 ```
 
-See the [iOS guide](ios/README.md) for the project, device signing, and simulator builds. For architecture and verification, see the [documentation index](docs/README.md), [shared engine architecture](ARCHITECTURE.md), and [validation guide](modern_UI/Spektrafilm/VALIDATION.md). Report issues on [GitHub](https://github.com/akinal5765-byte/Silverphase/issues) or see the [contribution guide](CONTRIBUTING.md).
+Full build, signing and device-sideload steps are in the repo's iOS build docs and the preflight SOP.
 
-## Sources and licences
+## Background
 
-Silverphase is an independent derivative of Hanze Qiu’s [SpektraLab](https://github.com/JamesQiu2005/SpektraLab). The physical model and original measured film and paper profiles come from Andrea Volpato’s [spektrafilm](https://github.com/andreavolpato/spektrafilm). [Licences and credits](LICENSES.md) · [Material data sources](license/DATA-SOURCES.md)
+Relic Cam iOS is a native port of the Android Relic Cam, developed on top of the open-source film engine [Silverphase](https://github.com/akinal5765-byte/Silverphase), wiring its physical film/print pipeline into a camera interaction of load → shoot → develop → print.
 
-### Thanks to Negs
+The full migration and redesign notes — engine research, Windows feasibility, the Silverphase fork plan, the soul-preserving interaction redesign, and stage reports — live in this repository's docs and issues.
 
-Thank you to Noah Haasis’s [Negs](https://github.com/noahhaasis/negs) and to [yosoyelchris](https://github.com/yosoyelchris), who contributed Prep and camera brightness matching to Negs. Silverphase 1.3.0 draws on Negs in the following areas.
+### Credits & license
 
-- **Pre-film controls and camera brightness matching** · We drew on Negs’s tone, detail, and color adjustments and its use of the camera preview to fit each RAW file’s starting exposure. [Negs Prep](https://github.com/noahhaasis/negs/blob/479a5674bb9d43af5c08fbd7307b367bec7bf10b/docs/prep.md) · [Negs credits](https://github.com/noahhaasis/negs#credits)
-- **Simulation Size and star ratings in exports** · We drew on Negs’s pre-film linear resampling and the practice of writing photo ratings to `xmp:Rating` in finished exports. [Negs Image Size](https://github.com/noahhaasis/negs/blob/479a5674bb9d43af5c08fbd7307b367bec7bf10b/docs/image-size.md) · [Negs library and export features](https://github.com/noahhaasis/negs#a-darkroom-in-a-window)
-- **29 experimental film profiles** · We adopted Negs’s conversions of MUAStudio’s [Fotufilm](https://fotufilm.com) profiles and selected development and print parameters. [Profile sources and licensing](license/DATA-SOURCES.md#experimental-fotufilm-profiles) · [Pinned source and file provenance](engine/resources_product/UPSTREAM.json)
-- **Shared engine calibration** · We drew on Negs’s implementation of the experimental Spektrafilm model for DIR saturation, Hanatos spectral-window normalization, and the neutral print filter solver. [DIR](https://github.com/noahhaasis/negs/blob/97d63aaebca9654b041211dea9eebd55dd12b878/crates/spektrafilm-model/src/couplers.rs) · [Spectral adaptation](https://github.com/noahhaasis/negs/blob/97d63aaebca9654b041211dea9eebd55dd12b878/crates/spektrafilm-core/src/spectral_service.rs) · [Print balance](https://github.com/noahhaasis/negs/blob/97d63aaebca9654b041211dea9eebd55dd12b878/crates/spektrafilm-core/src/print_balance.rs)
-- **Stage-by-stage validation** · Negs’s verification approach informed Silverphase’s own Kodak 5219 checks for negative density, grain, and measured spectral patches. [Negs validation report](https://github.com/noahhaasis/negs/blob/479a5674bb9d43af5c08fbd7307b367bec7bf10b/docs/gpu-vs-cpu-quality.md) · [Silverphase’s 5219 checks](modern_UI/Spektrafilm/VALIDATION.md#5219-底片与光谱色样)
+Relic Cam's imaging engine derives from [Silverphase](https://github.com/akinal5765-byte/Silverphase), itself an independent derivative of Hanze Qiu's [SpektraLab](https://github.com/JamesQiu2005/SpektraLab); its physical model and measured film/print stocks come from Andrea Volpato's [spektrafilm](https://github.com/andreavolpato/spektrafilm). CONTAX is a trademark of CONTAX Co., Ltd.; the wordmark here is used only to reproduce the interface style and does not grant trademark rights. See `COPYING` and `LICENSES.md` for the full license.
