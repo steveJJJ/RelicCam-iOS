@@ -1,7 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-    <title>Silverphase — 02-paper</title>
-    <defs><linearGradient id="color" x1="0" y1="0" x2="0.7" y2="1">
-    <stop offset="0" stop-color="#E9EFF4"/><stop offset="1" stop-color="#AAB7C7"/>
-    </linearGradient></defs>
-    <path d="M512 220 C478 220 460 230 432 247 L244 356 C192 386 192 424 244 454 L432 563 C480 591 544 591 592 563 L780 454 C832 424 832 386 780 356 L592 247 C564 230 546 220 512 220Z" fill="url(#color)" transform="translate(0 32)"/>
-    </svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><g transform="translate(512,790) scale(0.151759,-0.151759) translate(-1256.44,0)"><path d="M479 0V1218H44V1466H1209V1218H775V0Z" transform="translate(0.0,0)" fill="none" stroke="#e0356b" stroke-width="26"/><path d="M77 389 349 422Q362 318 419.0 263.0Q476 208 557 208Q644 208 703.5 274.0Q763 340 763 452Q763 558 706.0 620.0Q649 682 567 682Q513 682 438 661L469 890Q583 887 643.0 939.5Q703 992 703 1079Q703 1153 659.0 1197.0Q615 1241 542 1241Q470 1241 419.0 1191.0Q368 1141 357 1045L98 1089Q125 1222 179.5 1301.5Q234 1381 331.5 1426.5Q429 1472 550 1472Q757 1472 882 1340Q985 1232 985 1096Q985 903 774 788Q900 761 975.5 667.0Q1051 573 1051 440Q1051 247 910.0 111.0Q769 -25 559 -25Q360 -25 229.0 89.5Q98 204 77 389Z" transform="translate(1373.88,0)" fill="none" stroke="#e0356b" stroke-width="26"/></g></svg>
