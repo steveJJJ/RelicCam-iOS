@@ -70,6 +70,10 @@ struct RelicDarkroomView: View {
     @State private var phase: Phase = .choose
     @State private var errorMessage: String? = nil
     @State private var diagnostic = ""
+    // 成片墙：所有已冲洗卷里真实存在母片的帧，像系统相册一样铺成网格。
+    @State private var printedPhotos: [RelicPrintedPhoto] = []
+    // 从成片墙点进大图时，定位到对应帧（在卷内排序后的位置）。
+    @State private var galleryInitialIndex = 0
 
     private let store = RelicRollStore.shared
 
@@ -95,6 +99,8 @@ struct RelicDarkroomView: View {
                         // shooting 筛选里 —— 绝不能用它覆盖 selected（会把成片页的卷变成 nil）。
                         // 按 id 直接取最新卷，frames 完整保留，成片才能显示。
                         self.selected = await store.roll(withId: selected.rollId) ?? selected
+                        // 冲洗后从第 0 张开始过片；成片墙点进来的定位只在 openPrint 里设。
+                        self.galleryInitialIndex = 0
                         withAnimation { self.phase = .gallery }
                     } else {
                                     self.errorMessage = "冲洗失败：部分帧无法渲染。已完成的帧仍可在相册外查看。"
@@ -106,6 +112,7 @@ struct RelicDarkroomView: View {
                 case .gallery:
                     if let selected {
                         RelicDevelopedGalleryView(roll: selected, store: store,
+                                                  initialIndex: galleryInitialIndex,
                                                   onClose: { dismiss() })
                     }
                 }
@@ -135,7 +142,7 @@ struct RelicDarkroomView: View {
 
     private var chooseView: some View {
         Group {
-            if rolls.isEmpty {
+            if rolls.isEmpty && printedPhotos.isEmpty {
                 VStack(spacing: 14) {
                     Image(systemName: "film.stack")
                         .font(.system(size: 52)).foregroundColor(.white.opacity(0.3))
@@ -145,22 +152,56 @@ struct RelicDarkroomView: View {
                 }
             } else {
                 ScrollView {
-                    VStack(spacing: 14) {
-                        Text("选择要冲洗的胶卷")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.white.opacity(0.8))
-                        ForEach(rolls) { roll in
-                            RelicRollRow(roll: roll) {
-                                selected = roll
-                                // shooting 首次冲洗；developing 是上次中断的卷，
-                                // 继续冲洗（checkpoint 会跳过已完成帧，不重渲）。
-                                withAnimation {
-                                    phase = (roll.status == RollContract.statusShooting ||
-                                             roll.status == RollContract.statusDeveloping)
-                                        ? .developing : .gallery
+                    VStack(spacing: 18) {
+                        // 成片墙：像系统相册一样铺开所有已冲洗照片。
+                        if !printedPhotos.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(spacing: 7) {
+                                    Image(systemName: "photo.stack")
+                                        .foregroundColor(.green.opacity(0.9))
+                                    Text("成片 · \(printedPhotos.count) 张")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundColor(.white.opacity(0.85))
+                                    Spacer()
+                                }
+                                LazyVGrid(
+                                    columns: Array(repeating: GridItem(.flexible(), spacing: 3), count: 3),
+                                    spacing: 3
+                                ) {
+                                    ForEach(printedPhotos) { photo in
+                                        Button { openPrint(photo) } label: {
+                                            RelicPrintCell(url: photo.url)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                                Text("点任意一张看大图、翻页或存入相册。")
+                                    .font(.system(size: 11)).foregroundColor(.white.opacity(0.4))
+                            }
+                        }
+
+                        // 胶卷列表：待冲洗 / 已冲洗（仍可点进去逐张过片）。
+                        if !rolls.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(printedPhotos.isEmpty ? "选择要冲洗的胶卷" : "胶卷")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(.white.opacity(0.8))
+                                ForEach(rolls) { roll in
+                                    RelicRollRow(roll: roll) {
+                                        selected = roll
+                                        galleryInitialIndex = 0
+                                        // shooting 首次冲洗；developing 是上次中断的卷，
+                                        // 继续冲洗（checkpoint 会跳过已完成帧，不重渲）。
+                                        withAnimation {
+                                            phase = (roll.status == RollContract.statusShooting ||
+                                                     roll.status == RollContract.statusDeveloping)
+                                                ? .developing : .gallery
+                                        }
+                                    }
                                 }
                             }
                         }
+
                         if !diagnostic.isEmpty {
                             VStack(alignment: .leading, spacing: 6) {
                                 Text("上次显影诊断").font(.system(size: 12, weight: .semibold))
@@ -181,15 +222,81 @@ struct RelicDarkroomView: View {
         }
     }
 
+    /// 从成片墙点一张：找到所属卷，并让大图页定位到这一帧。
+    private func openPrint(_ photo: RelicPrintedPhoto) {
+        guard let roll = rolls.first(where: { $0.rollId == photo.rollId }) else {
+            RelicDarkroomLog.write("GRID tap roll missing \(photo.rollId)")
+            return
+        }
+        selected = roll
+        galleryInitialIndex = photo.framePos
+        withAnimation { phase = .gallery }
+    }
+
     private func reloadRolls() async {
         let all = await store.loadRolls()
         // 有帧的卷都要能进暗房：未冲洗（shooting）可冲洗，已冲洗（developed/editable）
         // 可回看成片。否则冲洗完 dismiss 后成片就再也找不回来 —— 用户反馈的「看不到照片」。
         let withFrames = all.filter { !$0.frames.isEmpty }
             .sorted { $0.createdAtMs > $1.createdAtMs }
+
+        // 成片墙：把每个已冲洗卷里「母片真实存在」的帧收集起来，按卷时间倒序铺开。
+        // 只认文件在的，避免覆盖安装后母片丢失却留下空白格子。
+        var prints: [RelicPrintedPhoto] = []
+        for roll in withFrames where roll.status != RollContract.statusShooting &&
+                                      roll.status != RollContract.statusDeveloping {
+            let sortedFrames = roll.frames.sorted { $0.index < $1.index }
+            for (pos, frame) in sortedFrames.enumerated() {
+                let name = "relic-\(roll.rollId)-\(frame.index).jpg"
+                if let url = RelicPaths.printURL(name: name) {
+                    prints.append(RelicPrintedPhoto(
+                        id: "\(roll.rollId)-\(frame.index)",
+                        rollId: roll.rollId,
+                        framePos: pos,
+                        url: url
+                    ))
+                }
+            }
+        }
         await MainActor.run {
             self.rolls = withFrames
+            self.printedPhotos = prints
             self.diagnostic = RelicDarkroomLog.tail(4)
+        }
+    }
+}
+
+/// 成片墙里的一张照片。framePos 是该帧在所属卷排序后数组里的位置，
+/// 用于点开大图时直接定位（而不是永远从第 0 张开始）。
+private struct RelicPrintedPhoto: Identifiable {
+    let id: String
+    let rollId: String
+    let framePos: Int
+    let url: URL
+}
+
+/// 成片墙网格单元：小尺寸缩略图（240px 边），避免几十张图同屏吃爆内存。
+private struct RelicPrintCell: View {
+    let url: URL
+    @State private var cg: CGImage? = nil
+
+    var body: some View {
+        ZStack {
+            Rectangle().fill(Color.white.opacity(0.06))
+            if let cg {
+                Image(uiImage: UIImage(cgImage: cg))
+                    .resizable().scaledToFill()
+            } else {
+                Image(systemName: "photo")
+                    .font(.system(size: 20))
+                    .foregroundColor(.white.opacity(0.2))
+            }
+        }
+        .aspectRatio(1, contentMode: .fill)
+        .clipped()
+        .task(id: url) {
+            // .task 闭包在 MainActor 上，gridThumb 也是 @MainActor，无需跨 actor。
+            self.cg = RelicDeveloper.gridThumb(of: url)
         }
     }
 }
@@ -574,6 +681,27 @@ enum RelicDeveloper {
         RelicDarkroomLog.write("DECODE fail \(url.lastPathComponent) size=\(size)")
         return nil
     }
+
+    /// 成片墙网格专用：缩到 240px 边。几十张同屏时全尺寸解码会撑爆内存，
+    /// 必须逐张降到缩略图尺寸再交给 SwiftUI（与 C8 的全尺寸空白同源）。
+    static func gridThumb(of url: URL) -> CGImage? {
+        guard let ui = UIImage(contentsOfFile: url.path) else { return nil }
+        let target = CGSize(width: 240, height: 240)
+        if #available(iOS 15.0, *) {
+            if let small = ui.preparingThumbnail(of: target), let cg = small.cgImage {
+                return cg
+            }
+        }
+        let scale = min(1, 240 / max(ui.size.width, ui.size.height))
+        let sz = CGSize(width: ui.size.width * scale, height: ui.size.height * scale)
+        if sz.width < 1 || sz.height < 1 { return nil }
+        let fmt = UIGraphicsImageRendererFormat()
+        fmt.scale = 1
+        let small = UIGraphicsImageRenderer(size: sz, format: fmt).image { _ in
+            ui.draw(in: CGRect(origin: .zero, size: sz))
+        }
+        return small.cgImage
+    }
 }
 
 // MARK: - 成片过片浏览
@@ -581,6 +709,7 @@ enum RelicDeveloper {
 private struct RelicDevelopedGalleryView: View {
     let roll: RollRecord
     let store: RelicRollStore
+    let initialIndex: Int
     let onClose: () -> Void
 
     @State private var index = 0
@@ -658,6 +787,8 @@ private struct RelicDevelopedGalleryView: View {
         }
         .padding()
         .task {
+            // 从成片墙点进来时定位到被点的那张（默认 0 = 从第一张开始）。
+            index = min(max(initialIndex, 0), max(total - 1, 0))
             // 所有帧都有母片（主或备份）才转 editable；只要有一帧缺失就保持 developed，
             // 下次进暗房仍可重试冲洗（C3 的语义：没有真正成片时不能锁死）。
             let allHavePrints = roll.frames.allSatisfy { frame in
