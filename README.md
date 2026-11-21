@@ -1,104 +1,74 @@
 <p align="center">
-  <img src="screenshots/app-icon.png" width="112" height="112" alt="Silverphase 应用图标">
+  <img src="screenshots/app-icon.png" width="112" height="112" alt="Relic Cam 应用图标">
 </p>
 
-<h1 align="center">Silverphase</h1>
+<h1 align="center">Relic Cam</h1>
 
 <p align="center">
-  <strong>从胶片曝光，到相纸成像。</strong><br>
-  面向 macOS、iPhone 和 iPad 的原生胶片工艺模拟器
+  <strong>装上胶卷，按下快门，冲出惊喜。</strong><br>
+  Relic Cam 的 iOS 原生移植 · 康泰时 T3 交互 · 真实胶片工艺引擎
 </p>
 
 <p align="center">
   简体中文 · <a href="README.en.md">English</a> ·
-  <a href="#下载">下载</a> · <a href="screenshots/current/README.md">效果案例</a> ·
-  <a href="docs/README.md">文档</a> · <a href="#从源码构建">从源码构建</a> ·
-  <a href="#也试试-layerlight">Layerlight</a>
+  <a href="#玩法">玩法</a> · <a href="#安装">安装</a> ·
+  <a href="#从源码构建">从源码构建</a> · <a href="#项目背景">项目背景</a>
 </p>
 
-Silverphase 在设备上模拟 **相机输入 → 胶片曝光 → 显影 → 印相 → 扫描**。胶片和相纸共同决定成像，颗粒、光晕和片边在工艺流程中形成。可以直接交付成片，也可以输出保留胶片反差的 Cineon 中间文件。
+Relic Cam 把「拍一张照片」还原成一段有仪式感的胶片流程：**选胶卷 → 取景拍摄 → 送暗房冲洗 → 才看到成片**。取景窗里看不到已经拍下的画面，就像一台真正的胶片相机——你只能相信手中的卷，等冲洗出来才揭晓。iOS 版本沿用安卓版 Relic Cam 的灵魂交互，界面按 **CONTAX T3** 的 LCD 逻辑重做。
 
-## 也试试 Layerlight
+> 当前版本：`1.2.5`（构建 8），面向 iPhone／iPad，iOS 18 及以上。通过侧载安装（ad-hoc 签名）。
 
-<table>
-  <tr>
-    <td width="112" align="center"><a href="https://apps.apple.com/cn/app/layerlight-hdr-photo-editor/id6756343255"><img src="screenshots/related-apps/layerlight-icon.png" width="96" height="96" alt="Layerlight 应用图标"></a></td>
-    <td>
-      <strong>Layerlight · HDR 图片编辑器</strong><br>
-      同一作者开发的独立闭源应用，已在 App Store 上架，支持 iPhone 与 iPad。
-      <p>调整 HDR 高光与 Gain Map 光影层，控制光感、反差和柔和度；支持 HEIC 摄影风格工作流，并提供裁切、画框、水印与批量导出等功能。摄影风格编辑需要受支持的设备和系统；部分功能需 Pro。</p>
-      <a href="https://apps.apple.com/cn/app/layerlight-hdr-photo-editor/id6756343255"><strong>在 App Store 查看与下载 →</strong></a>
-    </td>
-  </tr>
-</table>
+## 玩法
 
-Layerlight 的应用与图标保留其独立权利，不适用 Silverphase 的开源许可。图标来源见[相关应用素材说明](screenshots/related-apps/README.md)。
+1. **装胶卷。** 从胶卷仓选择一支胶卷（Portra、Gold、Tri-X、Ektachrome 等多款），装进相机。每卷 36 张。
+2. **取景拍摄。** T3 风格取景窗：2:3／3:4 画幅、绿灯对焦提示、快门速度、LCD 张数显示。快门按下后，画面存进「未冲洗底片」——**取景窗里看不到成片**。
+3. **拍完整卷或随时送洗。** 进入暗房，把整卷底片交给真实引擎逐张显影。进度页显示显影张数与预估时间。
+4. **冲洗后看成片。** 只有冲洗完成，成片才出现在暗房；此刻才能翻看、评分，并把喜欢的照片存入系统相册。
 
-## 下载
+取景窗里那句「看不见的才是最迷人的」，是 Relic Cam 与生俱来的设计。
 
-| 平台 | 当前版本与入口 | 系统要求 |
-|---|---|---|
-| macOS | [1.3.0（构建 5）](https://github.com/akinal5765-byte/Silverphase/releases/tag/macos-v1.3.0) · Apple Silicon DMG | macOS 15 或更高 |
-| iPhone／iPad | [TestFlight](https://testflight.apple.com/join/uwY3ZYJp) · [iOS 1.2.5 版本说明](https://github.com/akinal5765-byte/Silverphase/releases/tag/v1.2.5) | iOS／iPadOS 18 或更高 |
+## 安装
 
-macOS 可在「设置 → 软件更新」检查新版。GitHub DMG 使用 ad-hoc 签名，未经 Apple 公证。安装及 SHA-256 校验步骤见[发布指南](docs/BINARY-RELEASES.md)。两端独立编号，iOS 可安装构建以 TestFlight 为准。
+iOS 版本通过 CI 云编译产出 ad-hoc 签名的 IPA，使用 [Sideloadly](https://sideloadly.io/) 配合免费 Apple ID 侧载到真机。
 
-## macOS 1.3.0
+1. 从本仓库 `build-ipa` 分支下载 `RelicCam-unsigned.ipa`（或在 Actions 的构建产物中取）。
+2. 电脑安装 Sideloadly，用你的 Apple ID 签名并安装 IPA 到 iPhone。
+3. 首次打开前，在 iPhone 上进入 **设置 → 隐私与安全性 → 开发者模式**，开启并重启；信任此电脑。
+4. 打开 Relic Cam，装卷开拍。
 
-- **入片调整。** 在胶片曝光前调整局部亮部和暗部、曝光、对比度、低端提升、高端增益、中间调细节、色彩增强和饱和度。旧照片仍保留原影调设置。
-- **匹配相机预览亮度。** 受支持的 RAW 可以匹配相机预览，作为每张照片自己的起始曝光。批量复制可传递匹配开关，微调留在各自照片。
-- **实验胶片与印相。** 增加 29 款由 Negs 转换的 Fotufilm 配置。更新共享引擎的光谱适配、DIR、印相中性滤色和颗粒柔化。
-- **输出。** 导出 JPEG、PNG 和 TIFF 时写入 XMP 星级。重裁切后需要输出大图，可从「胶片 → 画幅 ⋯ → 模拟尺寸」指定长边，让颗粒和光晕按目标尺寸生成。
+> 免费 Apple ID 签名的 App 有效期为 7 天，到期后需重新侧载。企业签名或付费开发者账号可延长。
 
-完整改动与 5219 验证范围见 [1.3.0 发布记录](modern_UI/Spektrafilm/releases/1.3.0.md)。
+## UI 与交互
 
-## 编辑与交付
-
-1. **打开照片。** macOS 可打开文件或文件夹。iPhone 和 iPad 可从「照片」或「文件」导入，也可直接拍摄。RAW 兼容性取决于 Apple 的系统解码能力。
-2. **选择材料。** 公开目录包含 25 款常规胶片配置、9 款相纸和 29 款实验胶片。彩色负片可印相，正片或选择「不使用相纸」可直扫。Ilford Multigrade IV RC 支持 00–5 级纸号。[完整材料目录](modern_UI/Spektrafilm/Spektrafilm/Resources/StockCatalog.json) · [实验配置来源与适用范围](license/DATA-SOURCES.md#experimental-fotufilm-profiles)
-3. **按工艺调整。** 可以调整测光、白平衡、显影、颗粒、光晕、物理画幅与印相滤色，并加入片边和日期。macOS 另有软打样及双照片半格组合。[macOS 指南](modern_UI/Spektrafilm/README.md)
-4. **导出。** 成片可选 JPEG、8 位 PNG 或 16 位 TIFF，写入所选色彩配置。Cineon DI 包含 16 位对数 TIFF 与配套的 ProPhoto RGB／Rec.709 视图 LUT，适合后续调色。[导出与 DI 说明](modern_UI/Spektrafilm/README.md#图像与输出边界)
-
-Lightroom Classic 可交给 macOS 版编辑单张 JPEG／TIFF 副本。保存会全尺寸写回 Lightroom 登记的文件。Lightroom 的影调已经烘焙到输入。[图解设置与编辑指南](docs/LIGHTROOM-CLASSIC.md)
-
-### iPhone 与 iPad
-
-移动端有本地图库、评分与旗标、批量编辑和导出，以及面向常规 iPhone、iPhone Duo 和 iPad 的布局。1.2.5 加入拍摄 EV、RAW 偏好和分辨率选择，以及可重看的冲印引导。应用内相机和锁屏入口、取景模式及已知设备限制见 [iOS 指南](ios/README.md)与[平台控制对照](ios/CONTROL-AUDIT.md)。
-
-### 效果案例
-
-下图来自 2026 年 10 月的桌面案例。不同胶片、100% 颗粒与光晕对照见[案例页](screenshots/current/README.md)。当前界面位置以各平台指南为准。
-
-![历史效果案例，Portra 400 荷花](screenshots/current/silverphase-lotus-2026-10-31.jpg)
+- **CONTAX T3 主页**：银色机身质感、LCD 张数窗、绿灯与快门速度指示，细节对齐安卓版 Relic Cam。
+- **多机型适配**：按屏幕短边自适应缩放，兼容 iPhone 13 mini 到 iPad。
+- **状态机**：`拍摄中 → 暗房冲洗 → 已冲洗 → 可编辑`。未冲洗的底片不会在任何界面显示成片。
+- **续冲与诊断**：中断的胶卷可从断点续冲；显影日志落盘，便于排查内存或引擎问题。
 
 ## 从源码构建
 
-两端采用 SwiftUI 和共享 C++20／Metal 引擎。Python 用于开发脚本，应用运行在设备端。
+iOS 工程使用 SwiftUI 界面 + 共享的 C++20／Metal 胶片引擎。CI（`xcode-27` runner）在推送到 `main` 时自动编译。
 
 ```sh
-git clone https://github.com/akinal5765-byte/Silverphase.git
-cd Silverphase
-export DEVELOPER_DIR=/Applications/Xcode-27.1.app/Contents/Developer
+git clone https://github.com/steveJJJ/RelicCam-iOS.git
+cd RelicCam-iOS
 
-SILVERPHASE_LOCAL_MATERIALS=0 engine/build.sh bundle
-SILVERPHASE_LOCAL_MATERIALS=0 xcodebuild \
-  -project modern_UI/Spektrafilm/Spektrafilm.xcodeproj \
-  -scheme Spektrafilm -configuration Debug -derivedDataPath build/DerivedData build
-open build/DerivedData/Build/Products/Debug/Silverphase.app
+# 工程由脚本生成，图标与 Info.plist 均来自同一份配置
+python3 ios/Silverphase/Tools/gen-project.py
+
+# 真机编译需要 Xcode 27 与 Metal Toolchain；详见 iOS 构建说明
+xcodebuild -downloadComponent MetalToolchain
 ```
 
-iOS 工程、真机签名及模拟器命令见 [iOS 构建指南](ios/README.md)。了解应用结构和验证方式，请看[文档索引](docs/README.md)、[共享引擎架构](ARCHITECTURE.md)和[验证指南](modern_UI/Spektrafilm/VALIDATION.md)。反馈问题或参与开发，请到 [Issues](https://github.com/akinal5765-byte/Silverphase/issues) 或查看[贡献指南](CONTRIBUTING.md)。
+完整构建、签名与真机侧载步骤见仓库内的 iOS 构建文档与[装工具与真机预检 SOP](https://github.com/steveJJJ/RelicCam-iOS)。
 
-## 来源与许可
+## 项目背景
 
-Silverphase 是 Hanze Qiu 的 [SpektraLab](https://github.com/JamesQiu2005/SpektraLab) 的独立衍生项目。物理模型及原始实测胶片／相纸配置来自 Andrea Volpato 的 [spektrafilm](https://github.com/andreavolpato/spektrafilm)。感谢 Noah Haasis 的 Negs 和 MUAStudio 的 Fotufilm 为实验材料提供来源。[许可与署名](LICENSES.md) · [材料数据来源](license/DATA-SOURCES.md)
+Relic Cam iOS 是安卓版 Relic Cam 的原生移植，基于开源胶片引擎 [Silverphase](https://github.com/akinal5765-byte/Silverphase) 二次开发，把它的物理胶片/相纸模拟管线接进「装卷—拍摄—冲洗—成片」的相机交互。
 
-### 致谢 Negs
+迁移与改造的完整方案记录在本仓库的文档与 issue 中：引擎调研、Windows 单机可行性、Fork Silverphase 方案、灵魂交互改造方案、各阶段开工报告等。
 
-感谢 Noah Haasis 的 [Negs](https://github.com/noahhaasis/negs)，以及为 Negs 带来入片调整与相机亮度匹配的 [yosoyelchris](https://github.com/yosoyelchris)。Silverphase 1.3.0 从 Negs 参考或采用了以下内容。
+### 来源与署名
 
-- **入片调整与相机亮度匹配** · 借鉴入片影调、细节与色彩控制，以及用相机预览拟合单张 RAW 起始曝光的做法。[Negs Prep](https://github.com/noahhaasis/negs/blob/479a5674bb9d43af5c08fbd7307b367bec7bf10b/docs/prep.md) · [Negs 作者署名](https://github.com/noahhaasis/negs#credits)
-- **模拟尺寸与星级导出** · 借鉴胶片模拟前的线性重采样，以及导出时将照片星级写入 `xmp:Rating` 的做法。[Negs Image Size](https://github.com/noahhaasis/negs/blob/479a5674bb9d43af5c08fbd7307b367bec7bf10b/docs/image-size.md) · [Negs 照片管理与导出](https://github.com/noahhaasis/negs#a-darkroom-in-a-window)
-- **29 款实验胶片** · 采用 Negs 从 MUAStudio 的 [Fotufilm](https://fotufilm.com) 转换的材料配置和部分显影、印相参数。[配置来源与许可](license/DATA-SOURCES.md#experimental-fotufilm-profiles) · [源文件与版本记录](engine/resources_product/UPSTREAM.json)
-- **共享引擎校准** · 参考 Negs 对 Spektrafilm 实验模型的实现，包括 DIR 饱和响应、Hanatos 光谱窗口归一化和印相中性滤色求解。[DIR](https://github.com/noahhaasis/negs/blob/97d63aaebca9654b041211dea9eebd55dd12b878/crates/spektrafilm-model/src/couplers.rs) · [光谱适配](https://github.com/noahhaasis/negs/blob/97d63aaebca9654b041211dea9eebd55dd12b878/crates/spektrafilm-core/src/spectral_service.rs) · [印相平衡](https://github.com/noahhaasis/negs/blob/97d63aaebca9654b041211dea9eebd55dd12b878/crates/spektrafilm-core/src/print_balance.rs)
-- **分阶段验证** · 参考 Negs 拆开管线逐级检查的办法，建立 Silverphase 自己的 Kodak 5219 底片、颗粒和光谱色样参考。[Negs 的验证报告](https://github.com/noahhaasis/negs/blob/479a5674bb9d43af5c08fbd7307b367bec7bf10b/docs/gpu-vs-cpu-quality.md) · [Silverphase 5219 验证](modern_UI/Spektrafilm/VALIDATION.md#5219-底片与光谱色样)
+Relic Cam 的成像引擎源自 Hanze Qiu 的 [SpektraLab](https://github.com/JamesQiu2005/SpektraLab) 独立衍生项目 [Silverphase](https://github.com/akinal5765-byte/Silverphase)；其物理模型及原始实测胶片／相纸配置来自 Andrea Volpato 的 [spektrafilm](https://github.com/andreavolpato/spektrafilm)。CONTAX 是株式会社康泰时的商标；此处字标仅用于界面风格还原，不构成商标授权。完整许可见仓库 `COPYING` 与 `LICENSES.md`。
