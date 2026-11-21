@@ -308,7 +308,14 @@ struct RelicCameraView: View {
                 try? await Task.sleep(for: .milliseconds(750))
                 withAnimation(.easeOut(duration: 0.35)) { advancing = false }
             }
-            setNotice(ok ? "已装入未冲洗底片 · \(stock.brand)" : "底片已满或写入失败")
+            if ok {
+                setNotice("已装入未冲洗底片 · \(stock.brand)")
+            } else if shotsRemaining <= 0 {
+                setNotice("底片已满（36/36），请去暗房冲洗")
+            } else {
+                // 卷已被暗房取走（status 不是 shooting）或写盘异常 —— 不是「满」。
+                setNotice("写入失败：底片已送暗房或存储异常，请装新卷")
+            }
         } catch {
             setNotice("拍摄失败：\(error.localizedDescription)")
         }
