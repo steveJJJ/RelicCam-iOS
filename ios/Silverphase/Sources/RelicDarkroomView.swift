@@ -376,14 +376,21 @@ enum RelicDeveloper {
         var lastError: String? = nil
         let rawDir = RelicPaths.undevelopedDirectory()
         let developedDir = RelicPaths.developedDirectory()
+        let backupDir = RelicPaths.printsBackupDirectory()
 
         for frame in frames {
             let stem = "relic-\(roll.rollId)-\(frame.index)"
             let finalURL = developedDir.appendingPathComponent("\(stem).jpg")
-            // checkpoint 说完成，还得文件真在才算 —— 覆盖安装后母片可能被清，
-            // 只信 checkpoint 会跳过重渲，成片页于是永远空白。
-            if completed.contains(frame.index) &&
-                FileManager.default.fileExists(atPath: finalURL.path) { continue }
+            // checkpoint 说完成，还得文件真在才算 —— 主目录被清但备份在也算完成，
+            // 并把备份恢复到主目录，让后续 gallery/存相册都走主路径。
+            if completed.contains(frame.index) {
+                if FileManager.default.fileExists(atPath: finalURL.path) { continue }
+                if let found = RelicPaths.printURL(name: "\(stem).jpg") {
+                    try? FileManager.default.copyItem(at: found, to: finalURL)
+                    RelicDarkroomLog.write("RESTORE frame=\(frame.index) from=\(found.lastPathComponent)")
+                    continue
+                }
+            }
             let start = Date()
             onProgress(completed.count, total, frame.index, nil, eta(emaMs, total - completed.count))
 
@@ -425,9 +432,14 @@ enum RelicDeveloper {
                         try? FileManager.default.removeItem(at: finalURL)
                     }
                     try FileManager.default.copyItem(at: out, to: finalURL)
+                    // 冗余备份到独立目录：覆盖安装/系统清理可能抹掉 Application Support
+                    // 下的 Developed，备份目录在 Documents 下，通常一并保留。
+                    let backupURL = backupDir.appendingPathComponent("\(stem).jpg")
+                    try? FileManager.default.removeItem(at: backupURL)
+                    try? FileManager.default.copyItem(at: finalURL, to: backupURL)
                     try? FileManager.default.removeItem(at: out.deletingLastPathComponent())
                     let bytes = (try? FileManager.default.attributesOfItem(atPath: finalURL.path)[.size] as? Int) ?? 0
-                    RelicDarkroomLog.write("OK frame=\(frame.index) mp=\(mp) bytes=\(bytes)")
+                    RelicDarkroomLog.write("OK frame=\(frame.index) mp=\(mp) bytes=\(bytes) backup=\(FileManager.default.fileExists(atPath: backupURL.path))")
                     frameOK = true
                     lastError = nil
                     break
@@ -515,24 +527,48 @@ enum RelicDeveloper {
             RelicDarkroomLog.write("DECODE missing \(url.lastPathComponent)")
             return nil
         }
-        // 1. UIKit 直接解码（最稳，自动应用 EXIF 方向，P3 交给系统处理）
-        if let ui = UIImage(contentsOfFile: url.path), let cg = ui.cgImage {
-            return cg
+        // 【C8 核心修复】必须强制降采样，绝不能把全尺寸 CGImage 交给 SwiftUI。
+        // UIImage(contentsOfFile:) 是懒解码：本函数返回时非 nil（日志会记 GALLERY ok），
+        // 真正的像素解码发生在 Image(uiImage:) 渲染时 —— 6MP 全尺寸图在 13 mini 上
+        // 因内存压力渲染失败，界面就是空白。系统相册自带 downsampling 所以能显示，
+        // 这正是「相册有照片、暗房空白」的根因。
+        // preparingThumbnail 在创建时就缩到目标像素，渲染时不再吃大内存。
+        if let ui = UIImage(contentsOfFile: url.path) {
+            let target = CGSize(width: 1200, height: 1800)
+            if #available(iOS 15.0, *) {
+                if let small = ui.preparingThumbnail(of: target), let cg = small.cgImage {
+                    RelicDarkroomLog.write("DECODE thumb \(url.lastPathComponent) \(cg.width)x\(cg.height)")
+                    return cg
+                }
+            }
+            // 兜底：手动把全尺寸图画到目标尺寸（同样能强制像素解码 + 降采样）。
+            let scale = min(1, 1800 / max(ui.size.width, ui.size.height))
+            if scale < 1 {
+                let sz = CGSize(width: ui.size.width * scale, height: ui.size.height * scale)
+                let fmt = UIGraphicsImageRendererFormat()
+                fmt.scale = 1
+                let small = UIGraphicsImageRenderer(size: sz, format: fmt).image { _ in
+                    ui.draw(in: CGRect(origin: .zero, size: sz))
+                }
+                if let cg = small.cgImage {
+                    RelicDarkroomLog.write("DECODE render \(url.lastPathComponent) \(cg.width)x\(cg.height)")
+                    return cg
+                }
+            }
+            if let cg = ui.cgImage { return cg }
         }
-        // 2. ImageIO 原图解码（不强制变换，避免 transform 失败）
-        if let src = CGImageSourceCreateWithURL(url as CFURL, nil),
-           let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) {
-            return cg
-        }
-        // 3. ImageIO 缩略图兜底
+        // ImageIO 缩略图（指定最大边，避免全尺寸）。
         if let src = CGImageSourceCreateWithURL(url as CFURL, nil) {
             let opts: [CFString: Any] = [
                 kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
-                kCGImageSourceThumbnailMaxPixelSize: 1600
+                kCGImageSourceThumbnailMaxPixelSize: 1600,
+                kCGImageSourceCreateThumbnailWithTransform: true
             ]
             if let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) {
+                RelicDarkroomLog.write("DECODE io-thumb \(url.lastPathComponent)")
                 return cg
             }
+            if let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) { return cg }
         }
         let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? -1
         RelicDarkroomLog.write("DECODE fail \(url.lastPathComponent) size=\(size)")
@@ -622,25 +658,35 @@ private struct RelicDevelopedGalleryView: View {
         }
         .padding()
         .task {
-            // 只有真的有母片才能转 editable；否则下次进暗房会跳过冲洗。
-            let fm = FileManager.default
-            let dir = RelicPaths.developedDirectory()
-            let hasPrint = roll.frames.contains { frame in
-                fm.fileExists(atPath: dir.appendingPathComponent("relic-\(roll.rollId)-\(frame.index).jpg").path)
+            // 所有帧都有母片（主或备份）才转 editable；只要有一帧缺失就保持 developed，
+            // 下次进暗房仍可重试冲洗（C3 的语义：没有真正成片时不能锁死）。
+            let allHavePrints = roll.frames.allSatisfy { frame in
+                RelicPaths.printURL(name: "relic-\(roll.rollId)-\(frame.index).jpg") != nil
             }
-            if hasPrint { await store.markEditable(rollId: roll.rollId) }
+            if allHavePrints && !roll.frames.isEmpty {
+                await store.markEditable(rollId: roll.rollId)
+            } else {
+                RelicDarkroomLog.write("NOT EDITABLE roll=\(roll.rollId) missing prints")
+            }
         }
     }
 
     private func load(_ frame: FrameRecord) async {
         let name = "relic-\(roll.rollId)-\(frame.index).jpg"
-        let url = RelicPaths.developedDirectory().appendingPathComponent(name)
-        // 用缩略图解码而非全尺寸，避免大图在真机上因内存被回收而变空白。
-        guard let cg = RelicDeveloper.thumbnail(of: url) else {
-            RelicDarkroomLog.write("GALLERY fail \(name)")
+        // 主目录 → 备份目录双路径；找到后同步回主目录，后续逻辑统一。
+        guard let url = RelicPaths.printURL(name: name) else {
+            RelicDarkroomLog.write("GALLERY fail missing \(name) roll=\(roll.rollId) status=\(roll.status)")
             await MainActor.run {
                 self.image = nil
-                self.notice = "未找到成片母片，请回暗房重新冲洗这一卷。"
+                self.notice = "成片母片丢失（可能被覆盖安装清除），请点右上角「关闭」后重新冲洗这一卷。"
+            }
+            return
+        }
+        guard let cg = RelicDeveloper.thumbnail(of: url) else {
+            RelicDarkroomLog.write("GALLERY fail decode \(name)")
+            await MainActor.run {
+                self.image = nil
+                self.notice = "成片文件无法解码，请重新冲洗这一卷。"
             }
             return
         }
@@ -651,7 +697,13 @@ private struct RelicDevelopedGalleryView: View {
     private func saveToPhotos(_ frame: FrameRecord) async {
         saving = true
         let name = "relic-\(roll.rollId)-\(frame.index).jpg"
-        let url = RelicPaths.developedDirectory().appendingPathComponent(name)
+        guard let url = RelicPaths.printURL(name: name) else {
+            await MainActor.run {
+                self.notice = "成片母片丢失，无法存入相册。"
+                self.saving = false
+            }
+            return
+        }
         do {
             try await PhotoLibraryWriter.save(url)
             await MainActor.run {
@@ -675,6 +727,26 @@ extension RelicPaths {
         let dir = support.appendingPathComponent("RelicCam/Developed", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
+    }
+
+    /// 成片冗余备份目录（Documents 下，覆盖安装时比 Application Support 更可能被保留）。
+    static func printsBackupDirectory() -> URL {
+        let docs = FileManager.default.urls(for: .documentDirectory,
+                                            in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        let dir = docs.appendingPathComponent("RelicCam/PrintsBackup", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// 按文件名找母片：先主目录，丢失则从备份目录回退。找不到返回 nil。
+    static func printURL(name: String) -> URL? {
+        let fm = FileManager.default
+        let primary = developedDirectory().appendingPathComponent(name)
+        if fm.fileExists(atPath: primary.path) { return primary }
+        let backup = printsBackupDirectory().appendingPathComponent(name)
+        if fm.fileExists(atPath: backup.path) { return backup }
+        return nil
     }
 }
 
