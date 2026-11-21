@@ -47,11 +47,13 @@ struct RelicDarkroomView: View {
                     if let selected {
                         RelicDevelopProgressView(roll: selected) { finished in
                             Task { @MainActor in
-                                if finished {
-                                    await reloadRolls()
-                                    self.selected = self.rolls.first { $0.rollId == selected.rollId }
-                                    withAnimation { self.phase = .gallery }
-                                } else {
+                    if finished {
+                        // 冲洗完成后卷状态已变成 developed/editable，不在 reloadRolls() 的
+                        // shooting 筛选里 —— 绝不能用它覆盖 selected（会把成片页的卷变成 nil）。
+                        // 按 id 直接取最新卷，frames 完整保留，成片才能显示。
+                        self.selected = await store.roll(withId: selected.rollId) ?? selected
+                        withAnimation { self.phase = .gallery }
+                    } else {
                                     self.errorMessage = "冲洗失败：部分帧无法渲染。已完成的帧仍可在相册外查看。"
                                     withAnimation { self.phase = .gallery }
                                 }
@@ -107,12 +109,12 @@ struct RelicDarkroomView: View {
                         ForEach(rolls) { roll in
                             RelicRollRow(roll: roll) {
                                 selected = roll
-                                withAnimation { phase = .developing }
+                                // 未冲洗 → 进冲洗流程；已冲洗 → 直接回看成片。
+                                withAnimation {
+                                    phase = roll.status == RollContract.statusShooting
+                                        ? .developing : .gallery
+                                }
                             }
-                        }
-                        if rolls.isEmpty {
-                            Text("所有胶卷都已冲洗完成")
-                                .foregroundColor(.white.opacity(0.5)).padding(.top, 30)
                         }
                     }
                     .padding()
@@ -123,9 +125,11 @@ struct RelicDarkroomView: View {
 
     private func reloadRolls() async {
         let all = await store.loadRolls()
-        let undeveloped = all.filter { $0.status == RollContract.statusShooting && !$0.frames.isEmpty }
+        // 有帧的卷都要能进暗房：未冲洗（shooting）可冲洗，已冲洗（developed/editable）
+        // 可回看成片。否则冲洗完 dismiss 后成片就再也找不回来 —— 用户反馈的「看不到照片」。
+        let withFrames = all.filter { !$0.frames.isEmpty }
             .sorted { $0.createdAtMs > $1.createdAtMs }
-        await MainActor.run { self.rolls = undeveloped }
+        await MainActor.run { self.rolls = withFrames }
     }
 }
 
@@ -140,18 +144,25 @@ private struct RelicRollRow: View {
         return s.name
     }
 
+    private var isDeveloped: Bool { roll.status != RollContract.statusShooting }
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 14) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.5))
-                    Image(systemName: "film").font(.system(size: 26)).foregroundColor(.yellow.opacity(0.85))
+                    Image(systemName: isDeveloped ? "photo.stack" : "film")
+                        .font(.system(size: 26))
+                        .foregroundColor(isDeveloped ? Color.green.opacity(0.9) : Color.yellow.opacity(0.85))
                 }
                 .frame(width: 52, height: 52)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(stockName).font(.system(size: 16, weight: .semibold)).foregroundColor(.white)
-                    Text("\(roll.frames.count) 张待冲洗 · \(RollContract.maxShots) 张装量")
-                        .font(.system(size: 12, design: .monospaced)).foregroundColor(.yellow.opacity(0.85))
+                    Text(isDeveloped
+                         ? "\(roll.frames.count) 张成片 · 点击查看"
+                         : "\(roll.frames.count) 张待冲洗 · \(RollContract.maxShots) 张装量")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(isDeveloped ? Color.green.opacity(0.85) : Color.yellow.opacity(0.85))
                 }
                 Spacer()
                 Image(systemName: "chevron.right").foregroundColor(.white.opacity(0.35))
@@ -338,12 +349,13 @@ enum RelicDeveloper {
         return "预计还需约 \(max(1, sec)) 秒"
     }
 
-    /// 从成片文件读一张小缩略图给进度页，零引擎开销。
-    private static func thumbnail(of url: URL) -> CGImage? {
+    /// 从成片文件读一张小缩略图，零引擎开销。进度页与成片页共用 —— 避免全尺寸
+    /// 解码（36MP≈144MB）在 13 mini 等机型上翻页被系统回收导致「照片消失」。
+    fileprivate static func thumbnail(of url: URL) -> CGImage? {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let opts: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceThumbnailMaxPixelSize: 900,
+            kCGImageSourceThumbnailMaxPixelSize: 1600,
             kCGImageSourceCreateThumbnailWithTransform: true
         ]
         return CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary)
@@ -436,8 +448,8 @@ private struct RelicDevelopedGalleryView: View {
     private func load(_ frame: FrameRecord) async {
         let name = "relic-\(roll.rollId)-\(frame.index).jpg"
         let url = RelicPaths.developedDirectory().appendingPathComponent(name)
-        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let cg = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+        // 用缩略图解码而非全尺寸，避免大图在真机上因内存被回收而变空白。
+        guard let cg = RelicDeveloper.thumbnail(of: url) else {
             await MainActor.run { self.image = nil }
             return
         }
