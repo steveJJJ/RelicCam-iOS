@@ -1,48 +1,22 @@
 {
   "color-space-for-untagged-svg-colors": "display-p3",
   "fill": {
-    "linear-gradient": [
-      "srgb:0.95686,0.95686,0.94902,1",
-      "srgb:0.76078,0.76078,0.74902,1"
-    ]
+    "solid": "srgb:1,1,1,1"
   },
   "fill-specializations": [
     {
       "value": {
-        "linear-gradient": [
-          "srgb:0.95686,0.95686,0.94902,1",
-          "srgb:0.76078,0.76078,0.74902,1"
-        ]
-      }
-    },
-    {
-      "appearance": "dark",
-      "value": {
-        "linear-gradient": [
-          "srgb:0.13,0.15,0.18,1",
-          "srgb:0.055,0.07,0.095,1"
-        ]
+        "solid": "srgb:1,1,1,1"
       }
     }
   ],
   "groups": [
     {
-      "name": "T3",
+      "name": "CONTAX T3",
       "layers": [
         {
-          "image-name": "02-paper.svg",
-          "name": "T3",
-          "fill": "automatic"
-        }
-      ],
-      "lighting": "individual"
-    },
-    {
-      "name": "CONTAX",
-      "layers": [
-        {
-          "image-name": "01-film.svg",
-          "name": "CONTAX",
+          "image-name": "01-film.png",
+          "name": "CONTAX T3",
           "fill": "automatic"
         }
       ],
