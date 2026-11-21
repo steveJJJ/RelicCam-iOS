@@ -1,20 +1,17 @@
 {
   "color-space-for-untagged-svg-colors": "display-p3",
-  "features": [
-    "refractivity"
-  ],
   "fill": {
     "linear-gradient": [
-      "srgb:0.98039,0.97647,0.95294,1",
-      "srgb:0.93333,0.95686,0.96078,1"
+      "srgb:0.95686,0.95686,0.94902,1",
+      "srgb:0.76078,0.76078,0.74902,1"
     ]
   },
   "fill-specializations": [
     {
       "value": {
         "linear-gradient": [
-          "srgb:0.98039,0.97647,0.95294,1",
-          "srgb:0.93333,0.95686,0.96078,1"
+          "srgb:0.95686,0.95686,0.94902,1",
+          "srgb:0.76078,0.76078,0.74902,1"
         ]
       }
     },
@@ -30,62 +27,26 @@
   ],
   "groups": [
     {
-      "name": "02 \u00b7 Silver print",
+      "name": "T3",
       "layers": [
         {
           "image-name": "02-paper.svg",
-          "name": "02 \u00b7 Silver print",
-          "fill": "automatic",
-          "glass": true,
-          "opacity": 0.84
+          "name": "T3",
+          "fill": "automatic"
         }
       ],
-      "lighting": "individual",
-      "specular": true,
-      "specular-highlight-placement": "outside",
-      "translucency": {
-        "enabled": true,
-        "value": 0.45
-      },
-      "blur-material": 0.08,
-      "refractivity": {
-        "enabled": true,
-        "strength": 0.5,
-        "depth": 0.18
-      },
-      "shadow": {
-        "kind": "layer-color",
-        "opacity": 0.12
-      }
+      "lighting": "individual"
     },
     {
-      "name": "01 \u00b7 Orange film",
+      "name": "CONTAX",
       "layers": [
         {
           "image-name": "01-film.svg",
-          "name": "01 \u00b7 Orange film",
-          "fill": "automatic",
-          "glass": true,
-          "opacity": 1
+          "name": "CONTAX",
+          "fill": "automatic"
         }
       ],
-      "lighting": "individual",
-      "specular": true,
-      "specular-highlight-placement": "outside",
-      "translucency": {
-        "enabled": true,
-        "value": 0.06
-      },
-      "blur-material": 0.025,
-      "refractivity": {
-        "enabled": true,
-        "strength": 0.18,
-        "depth": 0.1
-      },
-      "shadow": {
-        "kind": "layer-color",
-        "opacity": 0.28
-      }
+      "lighting": "individual"
     }
   ],
   "supported-platforms": {
