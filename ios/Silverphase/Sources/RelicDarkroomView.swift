@@ -2,6 +2,48 @@ import SwiftUI
 import UIKit
 import CoreImage
 import Photos
+import Darwin
+
+/// 一次冲洗的结果。失败原因必须能回到界面 —— C2 把错误吞进 checkpoint，
+/// 用户只看到「空白成片页」，完全无法判断是内存不足还是底片损坏。
+struct RelicDevelopResult {
+    let ok: Bool
+    let message: String?
+}
+
+/// 落盘诊断：即使 App 在冲洗中被系统杀掉，下次打开也能看到最后一步。
+private enum RelicDarkroomLog {
+    private static func stamp() -> String {
+        let f = DateFormatter(); f.dateFormat = "MM-dd HH:mm:ss"
+        return f.string(from: Date())
+    }
+    private static var url: URL {
+        RelicPaths.developedDirectory().deletingLastPathComponent()
+            .appendingPathComponent("darkroom.log")
+    }
+    static func write(_ line: String) {
+        let entry = "\(stamp()) \(line)\n"
+        if let handle = FileHandle(forWritingAtPath: url.path) {
+            handle.seekToEndOfFile()
+            handle.write(Data(entry.utf8))
+            handle.closeFile()
+        } else {
+            try? entry.write(to: url, atomically: true, encoding: .utf8)
+        }
+        // 防止无限增长，超过 64KB 只留后半段。
+        if let size = try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int,
+           size > 64 * 1024,
+           let text = try? String(contentsOf: url, encoding: .utf8) {
+            let lines = text.split(separator: "\n").suffix(80).joined(separator: "\n") + "\n"
+            try? (lines + "").write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+    static func tail(_ count: Int = 5) -> String {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return "" }
+        return text.split(separator: "\n").suffix(count).joined(separator: "\n")
+    }
+    static func clear() { try? FileManager.default.removeItem(at: url) }
+}
 
 // MARK: - Relic Cam 暗房（阶段 C）
 //
@@ -27,6 +69,7 @@ struct RelicDarkroomView: View {
     @State private var selected: RollRecord? = nil
     @State private var phase: Phase = .choose
     @State private var errorMessage: String? = nil
+    @State private var diagnostic = ""
 
     private let store = RelicRollStore.shared
 
@@ -109,12 +152,27 @@ struct RelicDarkroomView: View {
                         ForEach(rolls) { roll in
                             RelicRollRow(roll: roll) {
                                 selected = roll
-                                // 未冲洗 → 进冲洗流程；已冲洗 → 直接回看成片。
+                                // shooting 首次冲洗；developing 是上次中断的卷，
+                                // 继续冲洗（checkpoint 会跳过已完成帧，不重渲）。
                                 withAnimation {
-                                    phase = roll.status == RollContract.statusShooting
+                                    phase = (roll.status == RollContract.statusShooting ||
+                                             roll.status == RollContract.statusDeveloping)
                                         ? .developing : .gallery
                                 }
                             }
+                        }
+                        if !diagnostic.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("上次显影诊断").font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.orange.opacity(0.9))
+                                Text(diagnostic)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.5))
+                                    .textSelection(.enabled)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                            .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.3)))
                         }
                     }
                     .padding()
@@ -129,7 +187,10 @@ struct RelicDarkroomView: View {
         // 可回看成片。否则冲洗完 dismiss 后成片就再也找不回来 —— 用户反馈的「看不到照片」。
         let withFrames = all.filter { !$0.frames.isEmpty }
             .sorted { $0.createdAtMs > $1.createdAtMs }
-        await MainActor.run { self.rolls = withFrames }
+        await MainActor.run {
+            self.rolls = withFrames
+            self.diagnostic = RelicDarkroomLog.tail(4)
+        }
     }
 }
 
@@ -144,7 +205,10 @@ private struct RelicRollRow: View {
         return s.name
     }
 
-    private var isDeveloped: Bool { roll.status != RollContract.statusShooting }
+    private var isInterrupted: Bool { roll.status == RollContract.statusDeveloping }
+    private var isDeveloped: Bool {
+        roll.status != RollContract.statusShooting && !isInterrupted
+    }
 
     var body: some View {
         Button(action: action) {
@@ -158,9 +222,11 @@ private struct RelicRollRow: View {
                 .frame(width: 52, height: 52)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(stockName).font(.system(size: 16, weight: .semibold)).foregroundColor(.white)
-                    Text(isDeveloped
-                         ? "\(roll.frames.count) 张成片 · 点击查看"
-                         : "\(roll.frames.count) 张待冲洗 · \(RollContract.maxShots) 张装量")
+                    Text(isInterrupted
+                         ? "上次显影中断 · 点击继续"
+                         : (isDeveloped
+                            ? "\(roll.frames.count) 张成片 · 点击查看"
+                            : "\(roll.frames.count) 张待冲洗 · \(RollContract.maxShots) 张装量"))
                         .font(.system(size: 12, design: .monospaced))
                         .foregroundColor(isDeveloped ? Color.green.opacity(0.85) : Color.yellow.opacity(0.85))
                 }
@@ -187,11 +253,13 @@ private struct RelicDevelopProgressView: View {
     @State private var phaseText = "准备显影液…"
     @State private var etaText = ""
     @State private var preview: CGImage? = nil
-    @State private var errorCount = 0
+    @State private var failure: String? = nil
+    @State private var retry = 0
+    @Environment(\.dismiss) private var dismiss
 
     private let store = RelicRollStore.shared
 
-    var body: some View {
+    private var progressContent: some View {
         VStack(spacing: 26) {
             Spacer()
             // 显影中的母片预览（每帧完成后刷新一张）
@@ -229,20 +297,60 @@ private struct RelicDevelopProgressView: View {
             Spacer()
         }
         .padding()
-        .task {
+        .task(id: retry) {
             UIApplication.shared.isIdleTimerDisabled = true
-            let ok = await RelicDeveloper.develop(roll: roll, store: store,
-                                                  onProgress: { d, t, idx, cg, eta in
+            let available = Int(os_proc_available_memory() / 1_000_000)
+            RelicDarkroomLog.write("BEGIN roll=\(roll.rollId) frames=\(roll.frames.count) avail=\(available)MB")
+            let result = await RelicDeveloper.develop(roll: roll, store: store,
+                                                      onProgress: { d, t, idx, cg, eta in
                 self.done = d; self.total = t; self.currentIndex = idx
                 self.etaText = eta
                 self.phaseText = d == 0 ? "首次显影，正在配药…" : "显影中 · 第 \(idx + 1) 张"
                 if let cg { self.preview = cg }
             })
             UIApplication.shared.isIdleTimerDisabled = false
-            self.errorCount = ok ? 0 : 1
-            finished(ok)
+            RelicDarkroomLog.write("END ok=\(result.ok) msg=\(result.message ?? "-")")
+            if result.ok {
+                finished(true)
+            } else {
+                // 失败不再偷偷跳进空白成片页 —— 把引擎的真实错误摆到用户面前。
+                self.failure = result.message ?? "未知错误，请查看暗房诊断。"
+            }
         }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+    }
+
+    var body: some View {
+        Group {
+            if let failure {
+                VStack(spacing: 18) {
+                    Spacer()
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 46)).foregroundColor(.orange)
+                    Text("显影失败").font(.system(size: 18, weight: .semibold)).foregroundColor(.white)
+                    Text(failure)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.7))
+                        .textSelection(.enabled)
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.35)))
+                    Button("重试冲洗") {
+                        self.failure = nil
+                        self.retry += 1
+                    }
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 30).padding(.vertical, 10)
+                    .background(Color.yellow).cornerRadius(9)
+                    Button("返回选卷") { dismiss() }
+                        .foregroundColor(.white.opacity(0.65))
+                    Spacer()
+                }
+                .padding()
+            } else {
+                progressContent
+            }
+        }
     }
 }
 
@@ -250,80 +358,123 @@ private struct RelicDevelopProgressView: View {
 
 @MainActor
 enum RelicDeveloper {
-    /// 整卷冲洗。返回是否全部帧成功。进度回调在主线程直接调用。
+    /// 整卷冲洗。返回成功与否 + 可展示的真实错误（不再静默吞异常）。
     static func develop(roll: RollRecord, store: RelicRollStore,
-                        onProgress: (Int, Int, Int, CGImage?, String) -> Void) async -> Bool {
+                        onProgress: (Int, Int, Int, CGImage?, String) -> Void) async -> RelicDevelopResult {
         let frames = roll.frames.sorted { $0.index < $1.index }
         let total = frames.count
-        guard total > 0 else { return true }
+        guard total > 0 else { return RelicDevelopResult(ok: true, message: nil) }
 
         await store.beginDevelop(rollId: roll.rollId)
         let cp = await store.loadCheckpoint(rollId: roll.rollId)
         var completed = Set(cp?.completedFrameIndices ?? [])
+        RelicDarkroomLog.write("RESUME done=\(completed.count)/\(total)")
 
         var emaMs: Double = 0
         var first = true
         var allOK = true
+        var lastError: String? = nil
+        let rawDir = RelicPaths.undevelopedDirectory()
+        let developedDir = RelicPaths.developedDirectory()
 
-        // 一个引擎实例贯穿整卷 —— render 不 close 会话；只有 export 内部 close。
-        // 因此每帧用「export 出成片 + render 出缩略图」两次调用，兼顾稳定与预览。
         for frame in frames {
             if completed.contains(frame.index) { continue }
             let start = Date()
             onProgress(completed.count, total, frame.index, nil, eta(emaMs, total - completed.count))
 
-            let rawURL = RelicPaths.undevelopedDirectory().appendingPathComponent(frame.handle)
+            let rawURL = rawDir.appendingPathComponent(frame.handle)
             guard FileManager.default.fileExists(atPath: rawURL.path) else {
-                allOK = false; continue
+                let msg = "底片文件丢失：\(frame.handle)"
+                RelicDarkroomLog.write("MISS frame=\(frame.index) \(msg)")
+                lastError = msg; allOK = false
+                await markFailed(frame.index, roll: roll, store: store)
+                continue
             }
 
             let recipe = recipe(for: roll)
-            let engine = MobileEngine()
-            do {
-                // 1. 成片：引擎真正渲染，落盘到临时目录（内部处理色彩/元数据）
-                let stem = "relic-\(roll.rollId)-\(frame.index)"
-                let out = try await engine.export(url: rawURL, recipe: recipe,
-                                                  geometry: MobileGeometry(), format: .jpeg)
+            let stem = "relic-\(roll.rollId)-\(frame.index)"
+            var frameOK = false
 
-                // 2. 搬到 Developed 私有目录（成片母片，未入相册）
-                let developedDir = RelicPaths.developedDirectory()
-                let finalURL = developedDir.appendingPathComponent("\(stem).jpg")
-                if FileManager.default.fileExists(atPath: finalURL.path) {
-                    try? FileManager.default.removeItem(at: finalURL)
+            // 致命点：引擎默认导出配方上限 24MP，内存门槛约 2.3GB；
+            // 13 mini 上必然被 os_proc_available_memory() 拒绝，C2 又把错误吞了。
+            // 逐级降到 6/3/1.5MP —— 宁可成片小一点，也必须先把照片冲出来。
+            for mp in [6.0, 3.0, 1.5] {
+                let available = Int(os_proc_available_memory() / 1_000_000)
+                RelicDarkroomLog.write("TRY frame=\(frame.index) mp=\(mp) avail=\(available)MB")
+                do {
+                    var options = MobileExportRecipe()
+                    options.format = .jpeg
+                    options.sizeMode = "megapixels"
+                    options.maximumMegapixels = mp
+                    options.quality = 0.92
+                    options.metadata = false
+                    options.location = false
+                    let engine = MobileEngine()
+                    let files = try await engine.exportFiles(url: rawURL, recipe: recipe,
+                                                              geometry: MobileGeometry(),
+                                                              options: options, stem: stem)
+                    guard let out = files.first else {
+                        throw NSError(domain: "RelicCam", code: -1,
+                                      userInfo: [NSLocalizedDescriptionKey: "引擎没有产出图片"])
+                    }
+                    let finalURL = developedDir.appendingPathComponent("\(stem).jpg")
+                    if FileManager.default.fileExists(atPath: finalURL.path) {
+                        try? FileManager.default.removeItem(at: finalURL)
+                    }
+                    try FileManager.default.copyItem(at: out, to: finalURL)
+                    try? FileManager.default.removeItem(at: out.deletingLastPathComponent())
+                    let bytes = (try? FileManager.default.attributesOfItem(atPath: finalURL.path)[.size] as? Int) ?? 0
+                    RelicDarkroomLog.write("OK frame=\(frame.index) mp=\(mp) bytes=\(bytes)")
+                    frameOK = true
+                    lastError = nil
+                    break
+                } catch {
+                    let msg = describe(error)
+                    lastError = msg
+                    RelicDarkroomLog.write("FAIL frame=\(frame.index) mp=\(mp) err=\(msg)")
                 }
-                try FileManager.default.copyItem(at: out, to: finalURL)
-                try? FileManager.default.removeItem(at: out.deletingLastPathComponent())
+            }
 
-                // 3. 缩略图：直接从成片文件降采样，零额外渲染
-                let thumb = RelicDeveloper.thumbnail(of: finalURL)
+            guard frameOK else {
+                allOK = false
+                await markFailed(frame.index, roll: roll, store: store)
+                continue
+            }
 
-                completed.insert(frame.index)
-                var cp = cp ?? DevelopCheckpoint(rollId: roll.rollId,
+            // 缩略图：直接从成片文件降采样，零额外引擎渲染
+            let thumb = RelicDeveloper.thumbnail(of: developedDir.appendingPathComponent("\(stem).jpg"))
+            completed.insert(frame.index)
+            var nextCP = cp ?? DevelopCheckpoint(rollId: roll.rollId,
                                                   filmStockId: roll.filmStockId,
                                                   printStockId: roll.printStockId)
-                cp.completedFrameIndices = completed.sorted()
-                cp.updatedAt = Date()
-                await store.saveCheckpoint(cp)
+            nextCP.completedFrameIndices = completed.sorted()
+            nextCP.updatedAt = Date()
+            await store.saveCheckpoint(nextCP)
 
-                let elapsed = Date().timeIntervalSince(start) * 1000
-                emaMs = first ? elapsed : emaMs * 0.7 + elapsed * 0.3
-                first = false
-                onProgress(completed.count, total, frame.index, thumb, eta(emaMs, total - completed.count))
-            } catch {
-                allOK = false
-                var cp = await store.loadCheckpoint(rollId: roll.rollId)
-                    ?? DevelopCheckpoint(rollId: roll.rollId, filmStockId: roll.filmStockId,
-                                         printStockId: roll.printStockId)
-                cp.failedFrameIndex = frame.index
-                cp.updatedAt = Date()
-                await store.saveCheckpoint(cp)
-            }
+            let elapsed = Date().timeIntervalSince(start) * 1000
+            emaMs = first ? elapsed : emaMs * 0.7 + elapsed * 0.3
+            first = false
+            onProgress(completed.count, total, frame.index, thumb, eta(emaMs, total - completed.count))
         }
 
-        if allOK {
-            await store.finishDevelop(rollId: roll.rollId)
+        if allOK { await store.finishDevelop(rollId: roll.rollId) }
+        return RelicDevelopResult(ok: allOK, message: allOK ? nil : (lastError ?? "部分帧冲洗失败"))
+    }
+
+    private static func markFailed(_ index: Int, roll: RollRecord, store: RelicRollStore) async {
+        var cp = await store.loadCheckpoint(rollId: roll.rollId)
+            ?? DevelopCheckpoint(rollId: roll.rollId, filmStockId: roll.filmStockId,
+                                 printStockId: roll.printStockId)
+        cp.failedFrameIndex = index
+        cp.updatedAt = Date()
+        await store.saveCheckpoint(cp)
+    }
+
+    private static func describe(_ error: Error) -> String {
+        if let localized = error as? LocalizedError, let text = localized.errorDescription {
+            return text
         }
-        return allOK
+        return String(describing: error)
     }
 
     /// 字符串 id → 引擎 recipe（照搬 MobileDocument.applyFilm / setPaper 的键名）
@@ -387,7 +538,11 @@ private struct RelicDevelopedGalleryView: View {
                         Image(uiImage: UIImage(cgImage: image))
                             .resizable().scaledToFit()
                     } else {
-                        Image(systemName: "photo").font(.system(size: 40)).foregroundColor(.white.opacity(0.3))
+                        VStack(spacing: 10) {
+                            Image(systemName: "photo").font(.system(size: 40)).foregroundColor(.white.opacity(0.3))
+                            Text("这一帧还没有成片，请回暗房重新冲洗")
+                                .font(.system(size: 12)).foregroundColor(.white.opacity(0.5))
+                        }
                     }
                 }
                 .aspectRatio(2.0 / 3.0, contentMode: .fit)
@@ -440,8 +595,13 @@ private struct RelicDevelopedGalleryView: View {
         }
         .padding()
         .task {
-            // 全部浏览（或至少看过）后转 editable
-            await store.markEditable(rollId: roll.rollId)
+            // 只有真的有母片才能转 editable；否则下次进暗房会跳过冲洗。
+            let fm = FileManager.default
+            let dir = RelicPaths.developedDirectory()
+            let hasPrint = roll.frames.contains { frame in
+                fm.fileExists(atPath: dir.appendingPathComponent("relic-\(roll.rollId)-\(frame.index).jpg").path)
+            }
+            if hasPrint { await store.markEditable(rollId: roll.rollId) }
         }
     }
 
@@ -450,7 +610,10 @@ private struct RelicDevelopedGalleryView: View {
         let url = RelicPaths.developedDirectory().appendingPathComponent(name)
         // 用缩略图解码而非全尺寸，避免大图在真机上因内存被回收而变空白。
         guard let cg = RelicDeveloper.thumbnail(of: url) else {
-            await MainActor.run { self.image = nil }
+            await MainActor.run {
+                self.image = nil
+                self.notice = "未找到成片母片，请回暗房重新冲洗这一卷。"
+            }
             return
         }
         await MainActor.run { self.image = cg }
