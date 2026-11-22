@@ -94,7 +94,8 @@ struct RelicDarkroomView: View {
                     chooseView
                 case .developing:
                     if let selected {
-                        RelicDevelopProgressView(roll: selected) { finished in
+                        RelicDevelopProgressView(roll: selected,
+                                                 onCancel: { withAnimation { phase = .choose } }) { finished in
                             Task { @MainActor in
                     if finished {
                         // 冲洗完成后卷状态已变成 developed/editable，不在 reloadRolls() 的
@@ -115,7 +116,8 @@ struct RelicDarkroomView: View {
                     if let selected {
                         RelicDevelopedGalleryView(roll: selected, store: store,
                                                   initialIndex: galleryInitialIndex,
-                                                  onClose: { dismiss() })
+                                                  // 回暗房主页（成片墙），不是退出整个暗房。
+                                                  onClose: { withAnimation { phase = .choose } })
                     }
                 }
             }
@@ -124,8 +126,15 @@ struct RelicDarkroomView: View {
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(phase == .gallery ? "完成" : "关闭") { dismiss() }
-                        .foregroundColor(.yellow)
+                    // 成片页「完成」回暗房主页；只有暗房主页的「关闭」才退出整个暗房。
+                    Button(phase == .gallery ? "完成" : "关闭") {
+                        if phase == .gallery {
+                            withAnimation { phase = .choose }
+                        } else {
+                            dismiss()
+                        }
+                    }
+                    .foregroundColor(.yellow)
                 }
             }
             .alert("冲洗出错", isPresented: Binding(
@@ -366,6 +375,7 @@ private struct RelicPrintCell: View {
 
 private struct RelicDevelopProgressView: View {
     let roll: RollRecord
+    let onCancel: () -> Void
     let finished: (Bool) -> Void
 
     @State private var done = 0
@@ -376,7 +386,6 @@ private struct RelicDevelopProgressView: View {
     @State private var preview: CGImage? = nil
     @State private var failure: String? = nil
     @State private var retry = 0
-    @Environment(\.dismiss) private var dismiss
 
     private let store = RelicRollStore.shared
 
@@ -463,7 +472,7 @@ private struct RelicDevelopProgressView: View {
                     .foregroundColor(.black)
                     .padding(.horizontal, 30).padding(.vertical, 10)
                     .background(Color.yellow).cornerRadius(9)
-                    Button("返回选卷") { dismiss() }
+                    Button("返回选卷") { onCancel() }
                         .foregroundColor(.white.opacity(0.65))
                     Spacer()
                 }
@@ -718,6 +727,31 @@ enum RelicDeveloper {
     }
 }
 
+// MARK: - 「已存入相册」持久化
+//
+// 用户反馈：大图页每次打开都又提示「存入相册」，明明之前已经存过 ——
+// 因为 saved 状态是 @State 内存态，从成片墙每次点开都是新实例，状态清零，
+// 再点一次就会往系统图库重复写入同一张照片。改用 UserDefaults 按
+// rollId-frameIndex 持久化，App 重启后仍然记得。
+
+enum RelicSavedPrints {
+    private static let key = "relic_saved_prints"
+
+    static func load() -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
+    }
+
+    static func isSaved(rollId: String, frameIndex: Int) -> Bool {
+        load().contains("\(rollId)-\(frameIndex)")
+    }
+
+    static func markSaved(rollId: String, frameIndex: Int) {
+        var all = load()
+        all.insert("\(rollId)-\(frameIndex)")
+        UserDefaults.standard.set(Array(all), forKey: key)
+    }
+}
+
 // MARK: - 成片过片浏览
 
 private struct RelicDevelopedGalleryView: View {
@@ -728,12 +762,15 @@ private struct RelicDevelopedGalleryView: View {
 
     @State private var index = 0
     @State private var image: CGImage? = nil
-    @State private var saved: Set<Int> = []
+    @State private var savedKeys: Set<String> = []
     @State private var saving = false
     @State private var notice: String? = nil
 
     private var frame: FrameRecord? { roll.frames.sorted { $0.index < $1.index }.safe(index) }
     private var total: Int { roll.frames.count }
+    private func isSaved(_ frame: FrameRecord) -> Bool {
+        savedKeys.contains("\(roll.rollId)-\(frame.index)")
+    }
 
     var body: some View {
         VStack(spacing: 16) {
@@ -777,16 +814,16 @@ private struct RelicDevelopedGalleryView: View {
                 Button(action: { Task { await saveToPhotos(frame) } }) {
                     HStack(spacing: 8) {
                         if saving { ProgressView().tint(.black) }
-                        Image(systemName: saved.contains(frame.index) ? "checkmark.circle.fill" : "square.and.arrow.down")
-                        Text(saved.contains(frame.index) ? "已存入相册" : "存入相册")
+                        Image(systemName: isSaved(frame) ? "checkmark.circle.fill" : "square.and.arrow.down")
+                        Text(isSaved(frame) ? "已存入相册" : "存入相册")
                             .font(.system(size: 15, weight: .semibold))
                     }
                     .foregroundColor(.black)
                     .padding(.horizontal, 34).padding(.vertical, 11)
-                    .background(saved.contains(frame.index) ? Color.green.opacity(0.85) : Color.yellow)
+                    .background(isSaved(frame) ? Color.green.opacity(0.85) : Color.yellow)
                     .cornerRadius(9)
                 }
-                .disabled(saving || saved.contains(frame.index))
+                .disabled(saving || isSaved(frame))
             } else {
                 Text("这一卷还没有成片").foregroundColor(.white.opacity(0.6))
             }
@@ -803,6 +840,8 @@ private struct RelicDevelopedGalleryView: View {
         .task {
             // 从成片墙点进来时定位到被点的那张（默认 0 = 从第一张开始）。
             index = min(max(initialIndex, 0), max(total - 1, 0))
+            // 恢复持久化的「已存入相册」状态（每次打开都是新实例）。
+            savedKeys = RelicSavedPrints.load()
             // 所有帧都有母片（主或备份）才转 editable；只要有一帧缺失就保持 developed，
             // 下次进暗房仍可重试冲洗（C3 的语义：没有真正成片时不能锁死）。
             let allHavePrints = roll.frames.allSatisfy { frame in
@@ -852,7 +891,8 @@ private struct RelicDevelopedGalleryView: View {
         do {
             try await PhotoLibraryWriter.save(url)
             await MainActor.run {
-                self.saved.insert(frame.index)
+                self.savedKeys.insert("\(roll.rollId)-\(frame.index)")
+                RelicSavedPrints.markSaved(rollId: roll.rollId, frameIndex: frame.index)
                 self.notice = nil
             }
         } catch {
