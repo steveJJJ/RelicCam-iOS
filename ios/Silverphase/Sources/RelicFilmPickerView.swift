@@ -24,10 +24,8 @@ struct RelicFilmPickerView: View {
                             dismiss()
                         } label: {
                             HStack(spacing: 14) {
-                                // 胶卷盒图标
-                                if let url = stock.packagingArtworkURL,
-                                   let data = try? Data(contentsOf: url),
-                                   let img = UIImage(data: data) {
+                                // 胶卷盒图标：统一走 RelicFilmIcon（每支卷都有图）
+                                if let img = RelicFilmIcon.uiImage(for: stock) {
                                     Image(uiImage: img)
                                         .resizable().scaledToFit()
                                         .frame(width: 44, height: 44)

@@ -175,6 +175,7 @@ struct RelicCameraView: View {
                         Spacer()
                         RelicBottomBar(
                             ui: ui,
+                            filmID: loadedStock?.id ?? "",
                             filmBrand: loadedStock?.brand ?? "FILM",
                             filmName: loadedStock?.name ?? "",
                             capturing: capturing,
@@ -219,7 +220,8 @@ struct RelicCameraView: View {
                                 Task { await takePhoto() }
                             }
                             .padding(.vertical, 56 * ui.s)
-                            RelicFilmBox(ui: ui, brand: loadedStock?.brand ?? "FILM",
+                            RelicFilmBox(ui: ui, filmID: loadedStock?.id ?? "",
+                                         brand: loadedStock?.brand ?? "FILM",
                                          name: loadedStock?.name ?? "")
                                 .frame(width: ui.wing, height: ui.wing)
                                 .onTapGesture { lastActivityAt = Date(); openFilmPicker() }
@@ -582,6 +584,7 @@ private struct RelicKey: View {
 // MARK: - 底栏：胶卷盒 / 快门 / 暗房（竖屏，安卓 bottomBar）
 private struct RelicBottomBar: View {
     let ui: RelicUI
+    let filmID: String
     let filmBrand: String
     let filmName: String
     let capturing: Bool
@@ -601,7 +604,7 @@ private struct RelicBottomBar: View {
             }
             // 安卓 gravity=bottom：胶卷/暗房上抬 8dp，快门落地，三者底缘对齐口径一致
             HStack(alignment: .bottom, spacing: 0) {
-                RelicFilmBox(ui: ui, brand: filmBrand, name: filmName)
+                RelicFilmBox(ui: ui, filmID: filmID, brand: filmBrand, name: filmName)
                     .frame(width: ui.wing, height: ui.wing)
                     .padding(.bottom, ui.wingLift)
                     .onTapGesture(perform: onFilm)
@@ -668,8 +671,13 @@ private struct RelicDarkroomPlate: View {
 // MARK: - 胶卷盒图标（彩色盒身）
 private struct RelicFilmBox: View {
     let ui: RelicUI
+    let filmID: String
     let brand: String
     let name: String
+    private var icon: UIImage? {
+        guard !filmID.isEmpty else { return nil }
+        return RelicFilmIcon.uiImage(stockID: filmID)
+    }
     private var tint: Color {
         let s = (brand + name).lowercased()
         if s.contains("gold") { return Color(red: 0.96, green: 0.72, blue: 0.18) }
@@ -681,15 +689,21 @@ private struct RelicFilmBox: View {
     }
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 3).fill(Color.black)
-            RoundedRectangle(cornerRadius: 3).fill(tint).padding(2)
-            VStack(spacing: 0) {
-                Text(brand.uppercased())
-                    .font(.system(size: 6.5 * ui.s, weight: .bold)).foregroundColor(.white).lineLimit(1)
-                Text(name.uppercased())
-                    .font(.system(size: 9 * ui.s, weight: .heavy)).foregroundColor(.white).lineLimit(1)
+            if let icon {
+                // 安卓一致：底栏胶卷键直接显示真实胶卷盒图标
+                Image(uiImage: icon).resizable().scaledToFill()
+                    .clipped()
+            } else {
+                RoundedRectangle(cornerRadius: 3).fill(Color.black)
+                RoundedRectangle(cornerRadius: 3).fill(tint).padding(2)
+                VStack(spacing: 0) {
+                    Text(brand.uppercased())
+                        .font(.system(size: 6.5 * ui.s, weight: .bold)).foregroundColor(.white).lineLimit(1)
+                    Text(name.uppercased())
+                        .font(.system(size: 9 * ui.s, weight: .heavy)).foregroundColor(.white).lineLimit(1)
+                }
+                .padding(2 * ui.s)
             }
-            .padding(2 * ui.s)
         }
         .overlay(RoundedRectangle(cornerRadius: 3).stroke(Color.white.opacity(0.5), lineWidth: 1))
         .shadow(radius: 2)
