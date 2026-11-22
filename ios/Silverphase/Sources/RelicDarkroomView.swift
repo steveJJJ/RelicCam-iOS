@@ -72,6 +72,8 @@ struct RelicDarkroomView: View {
     @State private var diagnostic = ""
     // 成片墙：所有已冲洗卷里真实存在母片的帧，像系统相册一样铺成网格。
     @State private var printedPhotos: [RelicPrintedPhoto] = []
+    // 未冲洗胶卷区（对齐安卓 GalleryActivity 的 rvUndeveloped）：只含 shooting/developing 卷。
+    @State private var undevelopedRolls: [RollRecord] = []
     // 从成片墙点进大图时，定位到对应帧（在卷内排序后的位置）。
     @State private var galleryInitialIndex = 0
 
@@ -142,7 +144,7 @@ struct RelicDarkroomView: View {
 
     private var chooseView: some View {
         Group {
-            if rolls.isEmpty && printedPhotos.isEmpty {
+            if undevelopedRolls.isEmpty && printedPhotos.isEmpty {
                 VStack(spacing: 14) {
                     Image(systemName: "film.stack")
                         .font(.system(size: 52)).foregroundColor(.white.opacity(0.3))
@@ -153,7 +155,37 @@ struct RelicDarkroomView: View {
             } else {
                 ScrollView {
                     VStack(spacing: 18) {
-                        // 成片墙：像系统相册一样铺开所有已冲洗照片。
+                        // ① 未冲洗胶卷区 —— 对齐安卓 GalleryActivity 的 rvUndeveloped：
+                        // 暗红底、横向卡片（胶卷名 + N/36 + 冲洗按钮），点按钮直接进显影。
+                        if !undevelopedRolls.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("待冲洗胶卷")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundColor(Color(red: 1.0, green: 0.84, blue: 0.77))
+                                Text("这里有底片还没冲洗，点「冲洗」送进暗房。")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.white.opacity(0.45))
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 12) {
+                                        ForEach(undevelopedRolls) { roll in
+                                            RelicUndevelopedCard(roll: roll) {
+                                                selected = roll
+                                                galleryInitialIndex = 0
+                                                // shooting 首次冲洗；developing 续冲（checkpoint 跳过已完成帧）。
+                                                withAnimation { phase = .developing }
+                                            }
+                                        }
+                                    }
+                                    .padding(.vertical, 2)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(Color(red: 0.10, green: 0.0, blue: 0.0))
+                            .cornerRadius(10)
+                        }
+
+                        // ② 成片墙：像系统相册一样铺开所有已冲洗照片。
                         if !printedPhotos.isEmpty {
                             VStack(alignment: .leading, spacing: 10) {
                                 HStack(spacing: 7) {
@@ -177,28 +209,6 @@ struct RelicDarkroomView: View {
                                 }
                                 Text("点任意一张看大图、翻页或存入相册。")
                                     .font(.system(size: 11)).foregroundColor(.white.opacity(0.4))
-                            }
-                        }
-
-                        // 胶卷列表：待冲洗 / 已冲洗（仍可点进去逐张过片）。
-                        if !rolls.isEmpty {
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text(printedPhotos.isEmpty ? "选择要冲洗的胶卷" : "胶卷")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundColor(.white.opacity(0.8))
-                                ForEach(rolls) { roll in
-                                    RelicRollRow(roll: roll) {
-                                        selected = roll
-                                        galleryInitialIndex = 0
-                                        // shooting 首次冲洗；developing 是上次中断的卷，
-                                        // 继续冲洗（checkpoint 会跳过已完成帧，不重渲）。
-                                        withAnimation {
-                                            phase = (roll.status == RollContract.statusShooting ||
-                                                     roll.status == RollContract.statusDeveloping)
-                                                ? .developing : .gallery
-                                        }
-                                    }
-                                }
                             }
                         }
 
@@ -258,11 +268,62 @@ struct RelicDarkroomView: View {
                 }
             }
         }
+        // 未冲洗胶卷：只留 shooting（可冲洗）和 developing（上次中断，可续冲）。
+        let undev = withFrames.filter {
+            $0.status == RollContract.statusShooting ||
+            $0.status == RollContract.statusDeveloping
+        }
         await MainActor.run {
             self.rolls = withFrames
             self.printedPhotos = prints
+            self.undevelopedRolls = undev
             self.diagnostic = RelicDarkroomLog.tail(4)
         }
+    }
+}
+
+/// 未冲洗胶卷卡片 —— 对齐安卓 UndevelopedAdapter 的横向红底卡片：
+/// 胶卷名 + N/36 + 冲洗按钮；正在冲洗的卷按钮变「继续冲洗」。
+private struct RelicUndevelopedCard: View {
+    let roll: RollRecord
+    let action: () -> Void
+
+    private var stockName: String {
+        guard let s = StockCatalog.shared.stock(roll.filmStockId) else { return roll.filmStockId }
+        return s.name
+    }
+    private var isInterrupted: Bool { roll.status == RollContract.statusDeveloping }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Image(systemName: "film")
+                .font(.system(size: 24))
+                .foregroundColor(Color(red: 1.0, green: 0.60, blue: 0.51))
+            Text(stockName)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(Color(red: 1.0, green: 0.84, blue: 0.77))
+                .lineLimit(1)
+                .frame(width: 116, alignment: .leading)
+            Text("\(roll.frames.count)/\(RollContract.maxShots)")
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundColor(Color(red: 1.0, green: 0.60, blue: 0.51))
+            Button(action: action) {
+                Text(isInterrupted ? "继续冲洗" : "冲洗")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 7)
+                    .background(Color(red: 0.545, green: 0.10, blue: 0.10))
+                    .cornerRadius(6)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(14)
+        .frame(width: 144)
+        .background(Color(red: 0.165, green: 0.031, blue: 0.031))
+        .cornerRadius(10)
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .stroke(Color(red: 1.0, green: 0.60, blue: 0.51).opacity(0.18), lineWidth: 0.5))
     }
 }
 
@@ -298,53 +359,6 @@ private struct RelicPrintCell: View {
             // .task 闭包在 MainActor 上，gridThumb 也是 @MainActor，无需跨 actor。
             self.cg = RelicDeveloper.gridThumb(of: url)
         }
-    }
-}
-
-// MARK: - 待冲洗卷行
-
-private struct RelicRollRow: View {
-    let roll: RollRecord
-    let action: () -> Void
-
-    private var stockName: String {
-        guard let s = StockCatalog.shared.stock(roll.filmStockId) else { return roll.filmStockId }
-        return s.name
-    }
-
-    private var isInterrupted: Bool { roll.status == RollContract.statusDeveloping }
-    private var isDeveloped: Bool {
-        roll.status != RollContract.statusShooting && !isInterrupted
-    }
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.5))
-                    Image(systemName: isDeveloped ? "photo.stack" : "film")
-                        .font(.system(size: 26))
-                        .foregroundColor(isDeveloped ? Color.green.opacity(0.9) : Color.yellow.opacity(0.85))
-                }
-                .frame(width: 52, height: 52)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(stockName).font(.system(size: 16, weight: .semibold)).foregroundColor(.white)
-                    Text(isInterrupted
-                         ? "上次显影中断 · 点击继续"
-                         : (isDeveloped
-                            ? "\(roll.frames.count) 张成片 · 点击查看"
-                            : "\(roll.frames.count) 张待冲洗 · \(RollContract.maxShots) 张装量"))
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundColor(isDeveloped ? Color.green.opacity(0.85) : Color.yellow.opacity(0.85))
-                }
-                Spacer()
-                Image(systemName: "chevron.right").foregroundColor(.white.opacity(0.35))
-            }
-            .padding(14)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.06)))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.09), lineWidth: 0.5))
-        }
-        .buttonStyle(.plain)
     }
 }
 
