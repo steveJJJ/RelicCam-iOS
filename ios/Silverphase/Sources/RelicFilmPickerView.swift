@@ -11,7 +11,9 @@ struct RelicFilmPickerView: View {
     let currentFilmID: String?
     let onPick: (Stock) -> Void
 
-    private let films = StockCatalog.shared.filmsForPicker
+    // 与安卓保持一致的 25 支（顺序也照抄安卓出厂顺序）；
+    // 引擎全量 catalog 不动，仅装卷页做展示过滤。
+    private let films = RelicFilmCatalog.pickerFilms
 
     var body: some View {
         NavigationStack {
