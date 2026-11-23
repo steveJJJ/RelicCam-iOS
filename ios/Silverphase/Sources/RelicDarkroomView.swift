@@ -113,12 +113,22 @@ struct RelicDarkroomView: View {
                         }
                     }
                 case .gallery:
-                    if let selected {
-                        RelicDevelopedGalleryView(roll: selected, store: store,
-                                                  initialIndex: galleryInitialIndex,
-                                                  // 回暗房主页（成片墙），不是退出整个暗房。
-                                                  onClose: { withAnimation { phase = .choose } })
-                    }
+                    RelicDevelopedGalleryView(
+                        photos: printedPhotos,
+                        initialIndex: galleryInitialIndex,
+                        store: store,
+                        // 回暗房主页（成片墙），不是退出整个暗房。
+                        onClose: { withAnimation { phase = .choose } },
+                        // 删除后刷新成片墙数据；删空了回主页。
+                        onDeleted: {
+                            Task { @MainActor in
+                                await reloadRolls()
+                                if printedPhotos.isEmpty {
+                                    withAnimation { phase = .choose }
+                                }
+                            }
+                        }
+                    )
                 }
             }
             .navigationTitle(phase == .choose ? "暗房 DARKROOM" : (phase == .developing ? "显影中" : "成片"))
@@ -241,14 +251,23 @@ struct RelicDarkroomView: View {
         }
     }
 
-    /// 从成片墙点一张：找到所属卷，并让大图页定位到这一帧。
+    /// 从成片墙点一张：定位到被点的那张，大图页在整个成片墙里左右滑。
     private func openPrint(_ photo: RelicPrintedPhoto) {
-        guard let roll = rolls.first(where: { $0.rollId == photo.rollId }) else {
-            RelicDarkroomLog.write("GRID tap roll missing \(photo.rollId)")
+        guard let idx = printedPhotos.firstIndex(where: { $0.id == photo.id }) else {
+            RelicDarkroomLog.write("GRID tap photo missing \(photo.id)")
             return
         }
-        selected = roll
-        galleryInitialIndex = photo.framePos
+        // 成片齐全的卷转 editable（原来在大图页 .task 里做，现在挪到这里）。
+        if let roll = rolls.first(where: { $0.rollId == photo.rollId }),
+           roll.frames.allSatisfy({ RelicPaths.printURL(
+               name: "relic-\(roll.rollId)-\($0.index).jpg") != nil }),
+           !roll.frames.isEmpty {
+            Task { @MainActor in await store.markEditable(rollId: roll.rollId) }
+        } else {
+            RelicDarkroomLog.write("NOT EDITABLE roll=\(photo.rollId) missing prints")
+        }
+        selected = nil
+        galleryInitialIndex = idx
         withAnimation { phase = .gallery }
     }
 
@@ -271,6 +290,7 @@ struct RelicDarkroomView: View {
                     prints.append(RelicPrintedPhoto(
                         id: "\(roll.rollId)-\(frame.index)",
                         rollId: roll.rollId,
+                        frameIndex: frame.index,
                         framePos: pos,
                         url: url
                     ))
@@ -341,7 +361,8 @@ private struct RelicUndevelopedCard: View {
 private struct RelicPrintedPhoto: Identifiable {
     let id: String
     let rollId: String
-    let framePos: Int
+    let frameIndex: Int      // 引擎帧号，用来拼母片文件名 relic-<rollId>-<frameIndex>.jpg
+    let framePos: Int        // 在所属卷排序后数组里的位置
     let url: URL
 }
 
@@ -362,7 +383,13 @@ private struct RelicPrintCell: View {
                     .foregroundColor(.white.opacity(0.2))
             }
         }
-        .aspectRatio(1, contentMode: .fill)
+        // 【对齐安卓 SquareImageView：宽度定高度 + CENTER_CROP】
+        // 原来用 .aspectRatio(1, contentMode: .fill)：fill 会让视图撑满父容器，
+        // 横拍图（3:2）把格子顶高、溢出到下一行，遮住竖拍缩略图。
+        // 改成 .fit + frame(maxWidth: .infinity)：格子严格正方形（高=宽），
+        // 图片 scaledToFill 居中裁切，clipped 保证不越界。
+        .frame(maxWidth: .infinity)
+        .aspectRatio(1, contentMode: .fit)
         .clipped()
         .task(id: url) {
             // .task 闭包在 MainActor 上，gridThumb 也是 @MainActor，无需跨 actor。
@@ -750,138 +777,153 @@ enum RelicSavedPrints {
         all.insert("\(rollId)-\(frameIndex)")
         UserDefaults.standard.set(Array(all), forKey: key)
     }
+
+    /// 删除成片时清掉标记，避免重冲后仍显示「已存入相册」。
+    static func remove(rollId: String, frameIndex: Int) {
+        var all = load()
+        all.remove("\(rollId)-\(frameIndex)")
+        UserDefaults.standard.set(Array(all), forKey: key)
+    }
 }
 
-// MARK: - 成片过片浏览
+// MARK: - 成片过片浏览（系统相册式左右滑）
 
+/// 单张大图页：左右滑切换整面成片墙；长按或点删除移除 APP 内成片。
+/// 对齐安卓 PhotoViewerActivity 的 ViewPager2 体验。
 private struct RelicDevelopedGalleryView: View {
-    let roll: RollRecord
-    let store: RelicRollStore
+    let photos: [RelicPrintedPhoto]
     let initialIndex: Int
+    let store: RelicRollStore
     let onClose: () -> Void
+    let onDeleted: () -> Void
 
-    @State private var index = 0
-    @State private var image: CGImage? = nil
+    @State private var current = 0
     @State private var savedKeys: Set<String> = []
     @State private var saving = false
     @State private var notice: String? = nil
+    @State private var pendingDelete: RelicPrintedPhoto? = nil
 
-    private var frame: FrameRecord? { roll.frames.sorted { $0.index < $1.index }.safe(index) }
-    private var total: Int { roll.frames.count }
-    private func isSaved(_ frame: FrameRecord) -> Bool {
-        savedKeys.contains("\(roll.rollId)-\(frame.index)")
-    }
+    private var photo: RelicPrintedPhoto? { photos.safe(current) }
 
     var body: some View {
-        VStack(spacing: 16) {
-            if let frame {
-                ZStack {
-                    Color.black
-                    if let image {
-                        Image(uiImage: UIImage(cgImage: image))
-                            .resizable().scaledToFit()
-                    } else {
-                        VStack(spacing: 10) {
-                            Image(systemName: "photo").font(.system(size: 40)).foregroundColor(.white.opacity(0.3))
-                            Text("这一帧还没有成片，请回暗房重新冲洗")
-                                .font(.system(size: 12)).foregroundColor(.white.opacity(0.5))
+        VStack(spacing: 10) {
+            if photos.isEmpty {
+                Spacer()
+                Image(systemName: "photo.stack").font(.system(size: 44))
+                    .foregroundColor(.white.opacity(0.3))
+                Text("还没有成片").foregroundColor(.white.opacity(0.6))
+                Button("返回暗房") { onClose() }.foregroundColor(.yellow).padding()
+                Spacer()
+            } else {
+                TabView(selection: $current) {
+                    ForEach(Array(photos.enumerated()), id: \.element.id) { idx, item in
+                        RelicZoomPhotoCell(photo: item)
+                            // 长按删除 —— 系统相册同款交互
+                            .onLongPressGesture(minimumDuration: 0.6) {
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                pendingDelete = item
+                            }
+                            .tag(idx)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.black)
+
+                // 页码 + 左右箭头（同时保留，兼顾无手势场景）
+                HStack(spacing: 24) {
+                    Button {
+                        if current > 0 { withAnimation { current -= 1 } }
+                    } label: {
+                        Image(systemName: "chevron.left").font(.system(size: 20))
+                    }
+                    .disabled(current <= 0)
+                    .foregroundColor(current > 0 ? .white : .white.opacity(0.2))
+
+                    Text("\(current + 1) / \(photos.count)")
+                        .font(.system(size: 14, design: .monospaced)).foregroundColor(.yellow)
+
+                    Button {
+                        if current < photos.count - 1 { withAnimation { current += 1 } }
+                    } label: {
+                        Image(systemName: "chevron.right").font(.system(size: 20))
+                    }
+                    .disabled(current >= photos.count - 1)
+                    .foregroundColor(current < photos.count - 1 ? .white : .white.opacity(0.2))
+                }
+                .padding(.top, 4)
+
+                if let photo {
+                    HStack(spacing: 12) {
+                        Button(action: { Task { await saveToPhotos(photo) } }) {
+                            HStack(spacing: 7) {
+                                if saving { ProgressView().tint(.black) }
+                                Image(systemName: isSaved(photo) ? "checkmark.circle.fill" : "square.and.arrow.down")
+                                Text(isSaved(photo) ? "已存入相册" : "存入相册")
+                                    .font(.system(size: 14, weight: .semibold))
+                            }
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 20).padding(.vertical, 10)
+                            .background(isSaved(photo) ? Color.green.opacity(0.85) : Color.yellow)
+                            .cornerRadius(9)
+                        }
+                        .disabled(saving || isSaved(photo))
+
+                        Button {
+                            pendingDelete = photo
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "trash")
+                                Text("删除")
+                                    .font(.system(size: 14, weight: .semibold))
+                            }
+                            .foregroundColor(.red.opacity(0.95))
+                            .padding(.horizontal, 18).padding(.vertical, 10)
+                            .background(Color.white.opacity(0.08))
+                            .cornerRadius(9)
                         }
                     }
                 }
-                .aspectRatio(2.0 / 3.0, contentMode: .fit)
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.white.opacity(0.12), lineWidth: 1))
-                .task(id: frame.index) { await load(frame) }
 
-                HStack(spacing: 30) {
-                    Button {
-                        if index > 0 { index -= 1 }
-                    } label: {
-                        Image(systemName: "chevron.left").font(.system(size: 22))
-                    }
-                    .disabled(index <= 0).foregroundColor(index > 0 ? .white : .white.opacity(0.2))
-
-                    Text("\(index + 1) / \(total)")
-                        .font(.system(size: 15, design: .monospaced)).foregroundColor(.yellow)
-
-                    Button {
-                        if index < total - 1 { index += 1 }
-                    } label: {
-                        Image(systemName: "chevron.right").font(.system(size: 22))
-                    }
-                    .disabled(index >= total - 1).foregroundColor(index < total - 1 ? .white : .white.opacity(0.2))
+                if let notice {
+                    Text(notice).font(.system(size: 12)).foregroundColor(.red.opacity(0.9))
                 }
 
-                Button(action: { Task { await saveToPhotos(frame) } }) {
-                    HStack(spacing: 8) {
-                        if saving { ProgressView().tint(.black) }
-                        Image(systemName: isSaved(frame) ? "checkmark.circle.fill" : "square.and.arrow.down")
-                        Text(isSaved(frame) ? "已存入相册" : "存入相册")
-                            .font(.system(size: 15, weight: .semibold))
-                    }
-                    .foregroundColor(.black)
-                    .padding(.horizontal, 34).padding(.vertical, 11)
-                    .background(isSaved(frame) ? Color.green.opacity(0.85) : Color.yellow)
-                    .cornerRadius(9)
-                }
-                .disabled(saving || isSaved(frame))
-            } else {
-                Text("这一卷还没有成片").foregroundColor(.white.opacity(0.6))
+                Text("左右滑动看下一张 · 长按照片删除 APP 内成片 · 存入相册会放进「Relic Cam」相簿")
+                    .font(.system(size: 10)).foregroundColor(.white.opacity(0.4))
+                    .multilineTextAlignment(.center)
             }
-
-            if let notice {
-                Text(notice).font(.system(size: 12)).foregroundColor(.red.opacity(0.9))
-            }
-
-            Text("这是冲洗出来的母片。只有点「存入相册」才会写进系统图库。")
-                .font(.system(size: 11)).foregroundColor(.white.opacity(0.4))
-                .multilineTextAlignment(.center)
         }
-        .padding()
+        .padding(.horizontal)
+        .padding(.bottom, 8)
         .task {
-            // 从成片墙点进来时定位到被点的那张（默认 0 = 从第一张开始）。
-            index = min(max(initialIndex, 0), max(total - 1, 0))
-            // 恢复持久化的「已存入相册」状态（每次打开都是新实例）。
+            current = min(max(initialIndex, 0), max(photos.count - 1, 0))
             savedKeys = RelicSavedPrints.load()
-            // 所有帧都有母片（主或备份）才转 editable；只要有一帧缺失就保持 developed，
-            // 下次进暗房仍可重试冲洗（C3 的语义：没有真正成片时不能锁死）。
-            let allHavePrints = roll.frames.allSatisfy { frame in
-                RelicPaths.printURL(name: "relic-\(roll.rollId)-\(frame.index).jpg") != nil
+            // 请求相簿写权限（读写的弹窗只会出现一次）
+            _ = await RelicAlbumWriter.ensureAuthorization()
+        }
+        .confirmationDialog(
+            "删除这张成片？",
+            isPresented: Binding(get: { pendingDelete != nil },
+                                 set: { if !$0 { pendingDelete = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("删除", role: .destructive) {
+                if let target = pendingDelete { Task { await deletePhoto(target) } }
             }
-            if allHavePrints && !roll.frames.isEmpty {
-                await store.markEditable(rollId: roll.rollId)
-            } else {
-                RelicDarkroomLog.write("NOT EDITABLE roll=\(roll.rollId) missing prints")
-            }
+            Button("取消", role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text("只删除 APP 内的成片，已存入系统相册的照片不受影响。")
         }
     }
 
-    private func load(_ frame: FrameRecord) async {
-        let name = "relic-\(roll.rollId)-\(frame.index).jpg"
-        // 主目录 → 备份目录双路径；找到后同步回主目录，后续逻辑统一。
-        guard let url = RelicPaths.printURL(name: name) else {
-            RelicDarkroomLog.write("GALLERY fail missing \(name) roll=\(roll.rollId) status=\(roll.status)")
-            await MainActor.run {
-                self.image = nil
-                self.notice = "成片母片丢失（可能被覆盖安装清除），请点右上角「关闭」后重新冲洗这一卷。"
-            }
-            return
-        }
-        guard let cg = RelicDeveloper.thumbnail(of: url) else {
-            RelicDarkroomLog.write("GALLERY fail decode \(name)")
-            await MainActor.run {
-                self.image = nil
-                self.notice = "成片文件无法解码，请重新冲洗这一卷。"
-            }
-            return
-        }
-        RelicDarkroomLog.write("GALLERY ok \(name) \(cg.width)x\(cg.height)")
-        await MainActor.run { self.image = cg }
+    private func isSaved(_ photo: RelicPrintedPhoto) -> Bool {
+        savedKeys.contains("\(photo.rollId)-\(photo.frameIndex)")
     }
 
-    private func saveToPhotos(_ frame: FrameRecord) async {
+    private func saveToPhotos(_ photo: RelicPrintedPhoto) async {
         saving = true
-        let name = "relic-\(roll.rollId)-\(frame.index).jpg"
-        guard let url = RelicPaths.printURL(name: name) else {
+        guard let url = RelicPaths.printURL(name: "relic-\(photo.rollId)-\(photo.frameIndex).jpg") else {
             await MainActor.run {
                 self.notice = "成片母片丢失，无法存入相册。"
                 self.saving = false
@@ -889,16 +931,58 @@ private struct RelicDevelopedGalleryView: View {
             return
         }
         do {
-            try await PhotoLibraryWriter.save(url)
+            try await RelicAlbumWriter.save(url)
             await MainActor.run {
-                self.savedKeys.insert("\(roll.rollId)-\(frame.index)")
-                RelicSavedPrints.markSaved(rollId: roll.rollId, frameIndex: frame.index)
+                self.savedKeys.insert("\(photo.rollId)-\(photo.frameIndex)")
+                RelicSavedPrints.markSaved(rollId: photo.rollId, frameIndex: photo.frameIndex)
                 self.notice = nil
             }
         } catch {
             await MainActor.run { self.notice = "保存失败：\(error.localizedDescription)" }
         }
         await MainActor.run { self.saving = false }
+    }
+
+    private func deletePhoto(_ photo: RelicPrintedPhoto) async {
+        let name = "relic-\(photo.rollId)-\(photo.frameIndex).jpg"
+        // 主目录 + 备份目录都删，母片彻底移除；系统相册里的副本不动。
+        let primary = RelicPaths.developedDirectory().appendingPathComponent(name)
+        let backup = RelicPaths.printsBackupDirectory().appendingPathComponent(name)
+        try? FileManager.default.removeItem(at: primary)
+        try? FileManager.default.removeItem(at: backup)
+        // 清掉「已存入相册」标记，避免重冲后再显示错误状态
+        RelicSavedPrints.remove(rollId: photo.rollId, frameIndex: photo.frameIndex)
+        RelicDarkroomLog.write("DELETE \(name)")
+        await MainActor.run {
+            self.savedKeys.remove("\(photo.rollId)-\(photo.frameIndex)")
+            self.pendingDelete = nil
+            self.notice = nil
+        }
+        onDeleted()
+    }
+}
+
+/// 大图单页：用缩略图解码（母片全尺寸 6MP 直接渲染会撑爆 13 mini 内存）。
+private struct RelicZoomPhotoCell: View {
+    let photo: RelicPrintedPhoto
+    @State private var image: UIImage? = nil
+
+    var body: some View {
+        ZStack {
+            Color.black
+            if let image {
+                Image(uiImage: image)
+                    .resizable().scaledToFit()
+                    .padding(.vertical, 4)
+            } else {
+                Image(systemName: "photo").font(.system(size: 36))
+                    .foregroundColor(.white.opacity(0.25))
+            }
+        }
+        .task(id: photo.id) {
+            guard let cg = RelicDeveloper.thumbnail(of: photo.url) else { return }
+            await MainActor.run { self.image = UIImage(cgImage: cg) }
+        }
     }
 }
 
