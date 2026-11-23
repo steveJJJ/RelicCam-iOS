@@ -821,7 +821,7 @@ private struct RelicDevelopedGalleryView: View {
                             // 长按删除 —— 系统相册同款交互
                             .onLongPressGesture(minimumDuration: 0.6) {
                                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                pendingDelete = item
+                                pendingDelete = photos[idx]
                             }
                             .tag(idx)
                     }
