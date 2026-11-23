@@ -816,8 +816,8 @@ private struct RelicDevelopedGalleryView: View {
                 Spacer()
             } else {
                 TabView(selection: $current) {
-                    ForEach(Array(photos.enumerated()), id: \.element.id) { idx, item in
-                        RelicZoomPhotoCell(photo: item)
+                    ForEach(photos.indices, id: \.self) { idx in
+                        RelicZoomPhotoCell(photo: photos[idx])
                             // 长按删除 —— 系统相册同款交互
                             .onLongPressGesture(minimumDuration: 0.6) {
                                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
