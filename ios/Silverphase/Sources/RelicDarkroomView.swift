@@ -79,7 +79,7 @@ struct RelicDarkroomView: View {
 
     private let store = RelicRollStore.shared
 
-    enum Phase {
+    enum Phase: Equatable {
         case choose        // 选卷
         case developing    // 冲洗中（逐帧）
         case gallery       // 逐张过片浏览
@@ -97,15 +97,19 @@ struct RelicDarkroomView: View {
                         RelicDevelopProgressView(roll: selected,
                                                  onCancel: { withAnimation { phase = .choose } }) { finished in
                             Task { @MainActor in
-                    if finished {
-                        // 冲洗完成后卷状态已变成 developed/editable，不在 reloadRolls() 的
-                        // shooting 筛选里 —— 绝不能用它覆盖 selected（会把成片页的卷变成 nil）。
-                        // 按 id 直接取最新卷，frames 完整保留，成片才能显示。
-                        self.selected = await store.roll(withId: selected.rollId) ?? selected
-                        // 冲洗后从第 0 张开始过片；成片墙点进来的定位只在 openPrint 里设。
-                        self.galleryInitialIndex = 0
-                        withAnimation { self.phase = .gallery }
-                    } else {
+                                // C15：显影一结束立刻重建暗房数据。此前只有首次进暗房的
+                                // .task 会 reload，卷状态 shooting→developed 和刚落盘的
+                                // 母片都没进 @State —— 于是冲洗完进成片页是空的，返回
+                                // 暗房主页仍显示「待冲洗」，必须退出暗房重进才有照片。
+                                await self.reloadRolls()
+                                if finished {
+                                    // 按 id 取最新卷，不用 reloadRolls 的 shooting 筛选覆盖
+                                    // selected（会把成片页的卷变成 nil）。
+                                    self.selected = await store.roll(withId: selected.rollId) ?? selected
+                                    // 冲洗后从第 0 张开始过片；成片墙点进来的定位只在 openPrint 里设。
+                                    self.galleryInitialIndex = 0
+                                    withAnimation { self.phase = .gallery }
+                                } else {
                                     self.errorMessage = "冲洗失败：部分帧无法渲染。已完成的帧仍可在相册外查看。"
                                     withAnimation { self.phase = .gallery }
                                 }
@@ -157,6 +161,12 @@ struct RelicDarkroomView: View {
             }
         }
         .task { await reloadRolls() }
+        // C15：任何路径回到暗房主页都重建一次数据（成片页返回、冲洗页取消返回），
+        // 避免 @State 残留进暗房时的旧快照。
+        .onChange(of: phase) { _, newPhase in
+            guard newPhase == .choose else { return }
+            Task { @MainActor in await reloadRolls() }
+        }
     }
 
     // MARK: 选卷

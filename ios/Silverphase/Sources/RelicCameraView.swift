@@ -180,7 +180,6 @@ struct RelicCameraView: View {
                             filmName: loadedStock?.name ?? "",
                             capturing: capturing,
                             enabled: loadedStock != nil && shotsRemaining > 0,
-                            notice: activeMessage,
                             onFilm: { lastActivityAt = Date(); openFilmPicker() },
                             onShutter: { Task { await takePhoto() } },
                             onDarkroom: { lastActivityAt = Date(); openDarkroom() }
@@ -278,9 +277,7 @@ struct RelicCameraView: View {
         loadedStock?.nominalSpeed.map(String.init) ?? "A"
     }
 
-    private var activeMessage: String? {
-        Date() < noticeUntil ? notice : nil
-    }
+    // C15：拍照成功不再弹文字提示；notice 只保留给 LCD 的异常告警。
 
     private func pressKey() {
         lastActivityAt = Date()
@@ -295,7 +292,7 @@ struct RelicCameraView: View {
 
     // MARK: - 拍照：存未冲洗底片，绝不显影
     private func takePhoto() async {
-        guard !capturing, let stock = loadedStock, shotsRemaining > 0 else { return }
+        guard !capturing, loadedStock != nil, shotsRemaining > 0 else { return }
         capturing = true
         lastActivityAt = Date()
         defer { capturing = false }
@@ -310,13 +307,15 @@ struct RelicCameraView: View {
                 try? await Task.sleep(for: .milliseconds(750))
                 withAnimation(.easeOut(duration: 0.35)) { advancing = false }
             }
-            if ok {
-                setNotice("已装入未冲洗底片 · \(stock.brand)")
-            } else if shotsRemaining <= 0 {
-                setNotice("底片已满（36/36），请去暗房冲洗")
-            } else {
-                // 卷已被暗房取走（status 不是 shooting）或写盘异常 —— 不是「满」。
-                setNotice("写入失败：底片已送暗房或存储异常，请装新卷")
+            if !ok {
+                // 对齐安卓 T3：拍完只有白闪 + 过卷动画 + LCD 计数 +1，
+                // 不再弹「已装入未冲洗底片」——那行字会压在 CONTAX 铭牌上方。
+                if shotsRemaining <= 0 {
+                    setNotice("底片已满（36/36），请去暗房冲洗")
+                } else {
+                    // 卷已被暗房取走（status 不是 shooting）或写盘异常 —— 不是「满」。
+                    setNotice("写入失败：底片已送暗房或存储异常，请装新卷")
+                }
             }
         } catch {
             setNotice("拍摄失败：\(error.localizedDescription)")
@@ -589,19 +588,13 @@ private struct RelicBottomBar: View {
     let filmName: String
     let capturing: Bool
     let enabled: Bool
-    let notice: String?
     let onFilm: () -> Void
     let onShutter: () -> Void
     let onDarkroom: () -> Void
 
     var body: some View {
         VStack(spacing: 6 * ui.s) {
-            if let notice {
-                Text(notice)
-                    .font(.system(size: 11 * ui.s, design: .monospaced))
-                    .foregroundColor(Color(red: 0.82, green: 0.86, blue: 0.62))
-                    .lineLimit(1)
-            }
+            // C15：底栏顶部不再放任何提示文字，避免压在 CONTAX 铭牌上。
             // 安卓 gravity=bottom：胶卷/暗房上抬 8dp，快门落地，三者底缘对齐口径一致
             HStack(alignment: .bottom, spacing: 0) {
                 RelicFilmBox(ui: ui, filmID: filmID, brand: filmBrand, name: filmName)
