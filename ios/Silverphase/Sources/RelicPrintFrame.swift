@@ -268,10 +268,13 @@ enum RelicPrintRenderer {
         let commentJSON = (try? JSONSerialization.data(withJSONObject: comment, options: []))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
 
+        // ImageDescription 在 ImageIO 里没有独立的顶层常量；放 TIFF 字典里。
+        // 用字面量键：ImageIO 对未知 key 直接忽略，不会因 SDK 差异编译失败。
         let tiff: [String: Any] = [
             kCGImagePropertyTIFFMake as String: "CONTAX",
             kCGImagePropertyTIFFModel as String: "T3",
             kCGImagePropertyTIFFSoftware as String: "Relic Cam + SpektraLab Engine",
+            "ImageDescription": "film=\(meta.filmStockId) print=\(meta.printStockId)",
         ]
         var exif: [String: Any] = [
             kCGImagePropertyExifDateTimeOriginal as String: fileDate,
@@ -288,8 +291,6 @@ enum RelicPrintRenderer {
         let props: [String: Any] = [
             kCGImagePropertyTIFFDictionary as String: tiff,
             kCGImagePropertyExifDictionary as String: exif,
-            kCGImagePropertyImageDescription as String:
-                "film=\(meta.filmStockId) print=\(meta.printStockId)",
         ]
 
         CGImageDestinationAddImageFromSource(dest, source, 0, props as CFDictionary)
