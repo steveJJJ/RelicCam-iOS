@@ -302,50 +302,69 @@ enum RelicPrintRenderer {
 // MARK: - 暗房里的成片相框设置卡
 
 struct RelicFrameSettingsCard: View {
-    /// 同步闭包：父视图自己起 Task 重建数据，避免把非 Sendable 的 async 闭包
-    /// 捕获进 @Sendable 的 Task 初始化器（Swift 6 strict concurrency 会报错）。
+    /// 同步闭包：父视图自己起 Task 重建数据并直接进成片大图页，避免把非 Sendable
+    /// 的 async 闭包捕获进 @Sendable 的 Task 初始化器（Swift 6 strict concurrency）。
     let onChange: () -> Void
 
     @State private var style: RelicFrameStyle = RelicFrameSettings.style
     @State private var dateOn: Bool = RelicFrameSettings.dateOn
-    @State private var busy = false
+
+    // T3 机身的黄铜/暖白色，和暗房配色统一；不用系统 Picker/Toggle 的蓝绿控件。
+    private let brass = Color(red: 0.95, green: 0.84, blue: 0.45)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 7) {
-                Image(systemName: "square.on.square")
-                    .foregroundColor(.yellow.opacity(0.9))
-                Text("成片相框")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundColor(.white.opacity(0.85))
-                Spacer()
-                if busy { ProgressView().tint(.yellow).scaleEffect(0.8) }
-            }
-
-            Picker("相框", selection: $style) {
+        VStack(spacing: 9) {
+            HStack(spacing: 8) {
+                Text("相框")
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.5))
                 ForEach(RelicFrameStyle.allCases, id: \.rawValue) { s in
-                    Text(s.label).tag(s)
+                    Button {
+                        guard style != s else { return }
+                        style = s
+                        apply(style: s, date: dateOn)
+                    } label: {
+                        Text(s.label)
+                            .font(.system(size: 12, weight: style == s ? .bold : .regular))
+                            .foregroundColor(style == s
+                                ? Color(red: 0.12, green: 0.07, blue: 0.06)
+                                : .white.opacity(0.65))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                            .background(
+                                Capsule().fill(style == s ? brass : Color.white.opacity(0.07))
+                            )
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-            .pickerStyle(.segmented)
 
-            Toggle(isOn: $dateOn) {
-                Text("日期戳（CONTAX T3 风格）")
-                    .font(.system(size: 13))
-                    .foregroundColor(.white.opacity(0.8))
+            HStack(spacing: 6) {
+                Button {
+                    dateOn.toggle()
+                    apply(style: style, date: dateOn)
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: dateOn ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 13))
+                        Text("日期戳")
+                            .font(.system(size: 12))
+                    }
+                    .foregroundColor(dateOn ? brass : .white.opacity(0.55))
+                }
+                .buttonStyle(.plain)
+                Spacer()
             }
-            .tint(.yellow)
-
-            Text("切换后暗房内所有成片按新样式重新生成，可立即看到效果；已存入系统相册的副本不变。")
-                .font(.system(size: 11))
-                .foregroundColor(.white.opacity(0.45))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color.white.opacity(0.05))
-        .cornerRadius(10)
-        .onChange(of: style) { _, v in apply(style: v, date: dateOn) }
-        .onChange(of: dateOn) { _, v in apply(style: style, date: v) }
+        .padding(11)
+        .background(
+            RoundedRectangle(cornerRadius: 9)
+                .fill(Color.white.opacity(0.035))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9)
+                        .stroke(Color.white.opacity(0.06), lineWidth: 0.5)
+                )
+        )
     }
 
     private func apply(style s: RelicFrameStyle, date d: Bool) {
@@ -353,11 +372,7 @@ struct RelicFrameSettingsCard: View {
         RelicFrameSettings.dateOn = d
         RelicFrameSettings.bumpRevision()
         RelicPrintRenderer.invalidateAll()
-        busy = true
+        // 不再原地转进度圈：父视图重建完数据后直接进成片大图页看新效果。
         onChange()
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(3))
-            busy = false
-        }
     }
 }

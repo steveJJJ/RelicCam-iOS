@@ -216,8 +216,14 @@ struct RelicDarkroomView: View {
 
                         // ② 成片相框：三档 + 日期戳（对齐安卓 EditActivity 的编辑页）。
                         // 母片不动，切换后重新生成带框版本，已有成片也立即生效。
+                        // C17：切换后不再停在设置卡转圈，重建完直接进成片大图页看效果。
                         RelicFrameSettingsCard {
-                            Task { @MainActor in await reloadRolls() }
+                            Task { @MainActor in
+                                await reloadRolls()
+                                guard !printedPhotos.isEmpty else { return }
+                                galleryInitialIndex = 0
+                                withAnimation { phase = .gallery }
+                            }
                         }
 
                         // ③ 成片墙：像系统相册一样铺开所有已冲洗照片。
