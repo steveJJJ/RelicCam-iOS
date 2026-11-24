@@ -214,7 +214,13 @@ struct RelicDarkroomView: View {
                             .cornerRadius(10)
                         }
 
-                        // ② 成片墙：像系统相册一样铺开所有已冲洗照片。
+                        // ② 成片相框：三档 + 日期戳（对齐安卓 EditActivity 的编辑页）。
+                        // 母片不动，切换后重新生成带框版本，已有成片也立即生效。
+                        RelicFrameSettingsCard {
+                            Task { @MainActor in await reloadRolls() }
+                        }
+
+                        // ③ 成片墙：像系统相册一样铺开所有已冲洗照片。
                         if !printedPhotos.isEmpty {
                             VStack(alignment: .leading, spacing: 10) {
                                 HStack(spacing: 7) {
@@ -288,6 +294,11 @@ struct RelicDarkroomView: View {
         let withFrames = all.filter { !$0.frames.isEmpty }
             .sorted { $0.createdAtMs > $1.createdAtMs }
 
+        // C16：母片 → 带框成片（白边/片边 + 日期戳 + CONTAX EXIF）。
+        // 只补缺失的 Framed 文件；改档时 invalidateAll() 会清空后按新设置全部重生成。
+        // 在后台线程跑，避免几十张图的解码/绘制卡住主线程。
+        await RelicPrintRenderer.rebuild(rolls: withFrames)
+
         // 成片墙：把每个已冲洗卷里「母片真实存在」的帧收集起来，按卷时间倒序铺开。
         // 只认文件在的，避免覆盖安装后母片丢失却留下空白格子。
         var prints: [RelicPrintedPhoto] = []
@@ -298,7 +309,8 @@ struct RelicDarkroomView: View {
                 let name = "relic-\(roll.rollId)-\(frame.index).jpg"
                 if let url = RelicPaths.printURL(name: name) {
                     prints.append(RelicPrintedPhoto(
-                        id: "\(roll.rollId)-\(frame.index)",
+                        // C16：带 revision，切档后 ForEach identity 变化 → 缩略图重新解码。
+                        id: "\(roll.rollId)-\(frame.index)-\(RelicFrameSettings.revision)",
                         rollId: roll.rollId,
                         frameIndex: frame.index,
                         framePos: pos,
@@ -552,7 +564,9 @@ enum RelicDeveloper {
             // 并把备份恢复到主目录，让后续 gallery/存相册都走主路径。
             if completed.contains(frame.index) {
                 if FileManager.default.fileExists(atPath: finalURL.path) { continue }
-                if let found = RelicPaths.printURL(name: "\(stem).jpg") {
+                // C16：这里要恢复的是「无框母片」，不能用 printURL（它会优先返回
+                // 带框成片，写回 Developed 会把白边/日期当成母片再冲一遍）。
+                if let found = RelicPaths.masterPrintURL(name: "\(stem).jpg") {
                     try? FileManager.default.copyItem(at: found, to: finalURL)
                     RelicDarkroomLog.write("RESTORE frame=\(frame.index) from=\(found.lastPathComponent)")
                     continue
@@ -958,8 +972,10 @@ private struct RelicDevelopedGalleryView: View {
         // 主目录 + 备份目录都删，母片彻底移除；系统相册里的副本不动。
         let primary = RelicPaths.developedDirectory().appendingPathComponent(name)
         let backup = RelicPaths.printsBackupDirectory().appendingPathComponent(name)
+        let framed = RelicPaths.framedDirectory().appendingPathComponent(name)
         try? FileManager.default.removeItem(at: primary)
         try? FileManager.default.removeItem(at: backup)
+        try? FileManager.default.removeItem(at: framed)
         // 清掉「已存入相册」标记，避免重冲后再显示错误状态
         RelicSavedPrints.remove(rollId: photo.rollId, frameIndex: photo.frameIndex)
         RelicDarkroomLog.write("DELETE \(name)")
@@ -1018,14 +1034,32 @@ extension RelicPaths {
         return dir
     }
 
-    /// 按文件名找母片：先主目录，丢失则从备份目录回退。找不到返回 nil。
-    static func printURL(name: String) -> URL? {
+    /// 带框成片目录（C16）：母片保持引擎导出的无框原样，展示/存相册都走这里。
+    static func framedDirectory() -> URL {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory,
+                                               in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        let dir = support.appendingPathComponent("RelicCam/Framed", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// 只找无框母片：主目录 → 备份目录。供 RelicPrintRenderer 重新生成带框版本。
+    static func masterPrintURL(name: String) -> URL? {
         let fm = FileManager.default
         let primary = developedDirectory().appendingPathComponent(name)
         if fm.fileExists(atPath: primary.path) { return primary }
         let backup = printsBackupDirectory().appendingPathComponent(name)
         if fm.fileExists(atPath: backup.path) { return backup }
         return nil
+    }
+
+    /// 按文件名找成片：优先带框版本（相框/日期戳/EXIF），缺失才回退母片。
+    static func printURL(name: String) -> URL? {
+        let fm = FileManager.default
+        let framed = framedDirectory().appendingPathComponent(name)
+        if fm.fileExists(atPath: framed.path) { return framed }
+        return masterPrintURL(name: name)
     }
 }
 
