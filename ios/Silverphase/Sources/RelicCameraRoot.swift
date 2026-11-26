@@ -62,7 +62,16 @@ struct RelicCameraRoot: View {
         .sheet(isPresented: $showingDarkroom, onDismiss: {
             Task { await refreshAfterDarkroom() }
         }) {
-            RelicDarkroomView()
+            RelicDarkroomView { filmID in
+                // C18：拍摄同款 —— 装同款新卷，关掉暗房 sheet 回相机。
+                // 用 filmStockId 从目录取 Stock（含 targetPrint），走和装卷页相同的 loadFilm。
+                Task { @MainActor in
+                    if let stock = StockCatalog.shared.stock(filmID) {
+                        await loadFilm(stock)
+                    }
+                    showingDarkroom = false
+                }
+            }
         }
         .task { await bootstrap() }
     }

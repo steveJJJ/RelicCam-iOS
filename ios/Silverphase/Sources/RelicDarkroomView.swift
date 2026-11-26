@@ -76,6 +76,8 @@ struct RelicDarkroomView: View {
     @State private var undevelopedRolls: [RollRecord] = []
     // 从成片墙点进大图时，定位到对应帧（在卷内排序后的位置）。
     @State private var galleryInitialIndex = 0
+    // C18：拍摄同款回调 —— 由 RelicCameraRoot 注入，装同款新卷并关闭暗房回相机。
+    var onShootSame: ((String) -> Void)? = nil
 
     private let store = RelicRollStore.shared
 
@@ -121,6 +123,7 @@ struct RelicDarkroomView: View {
                         photos: printedPhotos,
                         initialIndex: galleryInitialIndex,
                         store: store,
+                        rolls: rolls,
                         // 回暗房主页（成片墙），不是退出整个暗房。
                         onClose: { withAnimation { phase = .choose } },
                         // 删除后刷新成片墙数据；删空了回主页。
@@ -131,7 +134,9 @@ struct RelicDarkroomView: View {
                                     withAnimation { phase = .choose }
                                 }
                             }
-                        }
+                        },
+                        // C18：拍摄同款 —— 装同款新卷、关闭整个暗房回相机。
+                        onShootSame: { filmID in onShootSame?(filmID) }
                     )
                 }
             }
@@ -824,16 +829,28 @@ private struct RelicDevelopedGalleryView: View {
     let photos: [RelicPrintedPhoto]
     let initialIndex: Int
     let store: RelicRollStore
+    let rolls: [RollRecord]
     let onClose: () -> Void
     let onDeleted: () -> Void
+    let onShootSame: (String) -> Void
 
     @State private var current = 0
     @State private var savedKeys: Set<String> = []
     @State private var saving = false
     @State private var notice: String? = nil
     @State private var pendingDelete: RelicPrintedPhoto? = nil
+    // C18：信息面板 / 系统分享
+    @State private var showingInfo = false
+    @State private var shareItems: [Any]? = nil
 
     private var photo: RelicPrintedPhoto? { photos.safe(current) }
+    private var currentInfo: RelicPhotoInfo? {
+        guard let photo else { return nil }
+        let roll = rolls.first { $0.rollId == photo.rollId }
+        let url = RelicPaths.printURL(name: "relic-\(photo.rollId)-\(photo.frameIndex).jpg")
+            ?? photo.url
+        return RelicPhotoInfo.load(url: url, roll: roll, frameIndex: photo.frameIndex)
+    }
 
     var body: some View {
         VStack(spacing: 10) {
@@ -912,6 +929,18 @@ private struct RelicDevelopedGalleryView: View {
                             .background(Color.white.opacity(0.08))
                             .cornerRadius(9)
                         }
+
+                        // C18：照片信息（右滑大图页右上角的小按钮，信息面板入口）
+                        Button {
+                            showingInfo = true
+                        } label: {
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 20))
+                                .foregroundColor(.yellow.opacity(0.9))
+                                .frame(width: 40, height: 40)
+                                .background(Color.white.opacity(0.08))
+                                .cornerRadius(9)
+                        }
                     }
                 }
 
@@ -944,6 +973,37 @@ private struct RelicDevelopedGalleryView: View {
             Button("取消", role: .cancel) { pendingDelete = nil }
         } message: {
             Text("只删除 APP 内的成片，已存入系统相册的照片不受影响。")
+        }
+        // C18：信息面板（读 EXIF + 卷记录）。分享/拍摄同款都是面板里的入口。
+        .sheet(isPresented: $showingInfo) {
+            if let info = currentInfo {
+                RelicPhotoInfoSheet(
+                    info: info,
+                    onShare: {
+                        let url = RelicPaths.printURL(
+                            name: "relic-\(photo?.rollId ?? "")-\(photo?.frameIndex ?? 0).jpg"
+                        ) ?? photo?.url
+                        if let url { shareItems = [url] }
+                    },
+                    onShootSame: {
+                        if let filmID = photo.flatMap({ p in
+                            rolls.first { $0.rollId == p.rollId }?.filmStockId
+                        }) {
+                            onShootSame(filmID)
+                        }
+                    },
+                    onDone: { showingInfo = false }
+                )
+            }
+        }
+        // C18：系统分享表。shareItems 是 [Any]，用 optional binding 驱动 present。
+        .sheet(isPresented: Binding(
+            get: { shareItems != nil },
+            set: { if !$0 { shareItems = nil } }
+        )) {
+            if let items = shareItems {
+                RelicShareSheet(items: items)
+            }
         }
     }
 
