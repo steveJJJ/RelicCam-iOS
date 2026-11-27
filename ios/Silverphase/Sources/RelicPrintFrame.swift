@@ -272,7 +272,8 @@ enum RelicPrintRenderer {
         let display = StockCatalog.shared.stock(roll.filmStockId)?.name ?? roll.filmStockId
         guard let meta = meta(roll: roll, frame: frame, display: display) else { return nil }
         return RelicRenderJob(name: name, masterPath: master.path,
-                              outPath: RelicPaths.framedDirectory().appendingPathComponent(name),
+                              outPath: RelicPaths.framedDirectory()
+                                  .appendingPathComponent(name).path,
                               meta: meta, style: RelicFrameSettings.style,
                               dateOn: RelicFrameSettings.dateOn)
     }
