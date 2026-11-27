@@ -12,7 +12,8 @@ struct RelicDevelopResult {
 }
 
 /// 落盘诊断：即使 App 在冲洗中被系统杀掉，下次打开也能看到最后一步。
-private enum RelicDarkroomLog {
+/// C19：internal 可见，供 RelicPrintFrame 的导出校验记录坏文件。
+enum RelicDarkroomLog {
     private static func stamp() -> String {
         let f = DateFormatter(); f.dateFormat = "MM-dd HH:mm:ss"
         return f.string(from: Date())
@@ -72,6 +73,9 @@ struct RelicDarkroomView: View {
     @State private var diagnostic = ""
     // 成片墙：所有已冲洗卷里真实存在母片的帧，像系统相册一样铺成网格。
     @State private var printedPhotos: [RelicPrintedPhoto] = []
+    // C19：带框渲染 / 导出校验失败的帧。卡片给出单帧重试 / 删除入口，
+    // 不再静默少一张；展示层此时回退无框母片，成片墙不会出现空白格。
+    @State private var frameFailures: [RelicFrameFailure] = []
     // 未冲洗胶卷区（对齐安卓 GalleryActivity 的 rvUndeveloped）：只含 shooting/developing 卷。
     @State private var undevelopedRolls: [RollRecord] = []
     // 从成片墙点进大图时，定位到对应帧（在卷内排序后的位置）。
@@ -231,7 +235,24 @@ struct RelicDarkroomView: View {
                             }
                         }
 
-                        // ③ 成片墙：像系统相册一样铺开所有已冲洗照片。
+                        // ③ C19：失败帧卡片 —— 单帧重试 / 删除，对齐安卓 EditActivity。
+                        if !frameFailures.isEmpty {
+                            RelicFrameFailureCard(
+                                failures: frameFailures,
+                                rolls: rolls,
+                                onRetry: { f in
+                                    Task { @MainActor in await retryFrame(f) }
+                                },
+                                onDelete: { f in
+                                    Task { @MainActor in await discardFrame(f) }
+                                },
+                                onRetryAll: {
+                                    Task { @MainActor in await retryAllFrames() }
+                                }
+                            )
+                        }
+
+                        // ④ 成片墙：像系统相册一样铺开所有已冲洗照片。
                         if !printedPhotos.isEmpty {
                             VStack(alignment: .leading, spacing: 10) {
                                 HStack(spacing: 7) {
@@ -308,7 +329,7 @@ struct RelicDarkroomView: View {
         // C16：母片 → 带框成片（白边/片边 + 日期戳 + CONTAX EXIF）。
         // 只补缺失的 Framed 文件；改档时 invalidateAll() 会清空后按新设置全部重生成。
         // 在后台线程跑，避免几十张图的解码/绘制卡住主线程。
-        await RelicPrintRenderer.rebuild(rolls: withFrames)
+        let failures = await RelicPrintRenderer.rebuild(rolls: withFrames)
 
         // 成片墙：把每个已冲洗卷里「母片真实存在」的帧收集起来，按卷时间倒序铺开。
         // 只认文件在的，避免覆盖安装后母片丢失却留下空白格子。
@@ -339,7 +360,50 @@ struct RelicDarkroomView: View {
             self.rolls = withFrames
             self.printedPhotos = prints
             self.undevelopedRolls = undev
+            self.frameFailures = failures
             self.diagnostic = RelicDarkroomLog.tail(4)
+        }
+    }
+
+    // MARK: C19 失败帧操作（对齐安卓 EditActivity 的失败帧重试 / 删除）
+
+    @MainActor
+    private func retryFrame(_ f: RelicFrameFailure) async {
+        guard let roll = rolls.first(where: { $0.rollId == f.rollId }) else {
+            errorMessage = "找不到这张成片所属的胶卷。"
+            return
+        }
+        let reason = await RelicPrintRenderer.retryOne(roll: roll, frameIndex: f.frameIndex)
+        if let reason {
+            errorMessage = "第 \(f.frameIndex + 1) 张重试失败：\(reason)"
+            RelicDarkroomLog.write("RETRY frame=\(f.key) FAILED \(reason)")
+        } else {
+            RelicDarkroomLog.write("RETRY frame=\(f.key) OK")
+        }
+        await reloadRolls()
+    }
+
+    @MainActor
+    private func discardFrame(_ f: RelicFrameFailure) async {
+        RelicPrintRenderer.discard(rollId: f.rollId, frameIndex: f.frameIndex)
+        await reloadRolls()
+    }
+
+    @MainActor
+    private func retryAllFrames() async {
+        let targets = frameFailures
+        guard !targets.isEmpty else { return }
+        var failed = 0
+        for f in targets {
+            guard let roll = rolls.first(where: { $0.rollId == f.rollId }),
+                  await RelicPrintRenderer.retryOne(roll: roll, frameIndex: f.frameIndex) != nil else {
+                failed += 1
+                continue
+            }
+        }
+        await reloadRolls()
+        if failed > 0 {
+            errorMessage = "已重试 \(targets.count) 张，仍有 \(failed) 张失败，可在下方继续重试或删除。"
         }
     }
 }
